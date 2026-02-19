@@ -24,14 +24,19 @@ func NewServer(client *itportal.Client, c *cache.Cache) *sdkmcp.Server {
 
 You have access to:
 1. A live documentation snapshot (itportal://snapshot) containing all documented companies, sites,
-   devices, knowledge base articles, contacts, agreements and IP networks. Reading this resource
-   gives you the full picture of the client environment without extra API calls.
+   devices, knowledge base articles, contacts, agreements, IP networks, documents, accounts,
+   facilities, cabinets and configurations. Reading this resource once per conversation loads the
+   entire environment into context and is cached — subsequent turns do not re-charge for those tokens.
 2. Tools to search, query, create and update documentation in real time.
 
 Workflow for answering questions:
-- For broad questions ("what devices does Acme have?"), use search_docs or list_entities with filters.
-- For specific entity details (IPs, notes, management URLs on a device), use get_entity_details.
-- The snapshot is refreshed every 30 minutes; call refresh_snapshot if you need guaranteed fresh data.
+1. At the start of every conversation, read itportal://snapshot to load the full environment into
+   context. Do this once — not on every query. The content is prompt-cached so the cost is minimal.
+2. For follow-up targeted lookups within the same conversation, use search_docs to quickly find
+   relevant sections without re-reading the full snapshot.
+3. For specific entity sub-resources (IPs, notes, management URLs on a device), use get_entity_details.
+4. The snapshot auto-refreshes every 30 minutes. Call refresh_snapshot if you need guaranteed
+   fresh data mid-conversation, then re-read itportal://snapshot to update your context.
 
 Workflow for documenting new information:
 - Use create_device for hardware, create_kb_article for procedures/notes.
