@@ -207,6 +207,13 @@ func listAll[T any](ctx context.Context, c *Client, path string, opts *ListOptio
 		if err != nil {
 			return nil, err
 		}
+		if offset == 0 {
+			cap := total
+			if maxItems < cap {
+				cap = maxItems
+			}
+			all = make([]T, 0, cap)
+		}
 		all = append(all, items...)
 		offset += len(items)
 		if offset >= total || offset >= maxItems || len(items) == 0 {
@@ -417,6 +424,10 @@ func (c *Client) ListAccounts(ctx context.Context, opts *ListOptions) ([]Account
 	return listPage[Account](ctx, c, "/api/2.0/accounts/", opts)
 }
 
+func (c *Client) ListAllAccounts(ctx context.Context, opts *ListOptions, max int) ([]Account, error) {
+	return listAll[Account](ctx, c, "/api/2.0/accounts/", opts, max)
+}
+
 func (c *Client) GetAccount(ctx context.Context, id string) (*Account, error) {
 	return getOne[Account](ctx, c, "/api/2.0/accounts/"+id+"/")
 }
@@ -457,6 +468,10 @@ func (c *Client) UpdateAgreement(ctx context.Context, id string, fields map[stri
 
 func (c *Client) ListDocuments(ctx context.Context, opts *ListOptions) ([]Document, int, error) {
 	return listPage[Document](ctx, c, "/api/2.0/documents/", opts)
+}
+
+func (c *Client) ListAllDocuments(ctx context.Context, opts *ListOptions, max int) ([]Document, error) {
+	return listAll[Document](ctx, c, "/api/2.0/documents/", opts, max)
 }
 
 func (c *Client) GetDocument(ctx context.Context, id string) (*Document, error) {
@@ -506,6 +521,10 @@ func (c *Client) ListFacilities(ctx context.Context, opts *ListOptions) ([]Facil
 	return listPage[Facility](ctx, c, "/api/2.0/facilities/", opts)
 }
 
+func (c *Client) ListAllFacilities(ctx context.Context, opts *ListOptions, max int) ([]Facility, error) {
+	return listAll[Facility](ctx, c, "/api/2.0/facilities/", opts, max)
+}
+
 func (c *Client) GetFacility(ctx context.Context, id string) (*Facility, error) {
 	return getOne[Facility](ctx, c, "/api/2.0/facilities/"+id+"/")
 }
@@ -525,6 +544,10 @@ func (c *Client) ListCabinets(ctx context.Context, opts *ListOptions) ([]Cabinet
 	return listPage[Cabinet](ctx, c, "/api/2.0/cabinets/", opts)
 }
 
+func (c *Client) ListAllCabinets(ctx context.Context, opts *ListOptions, max int) ([]Cabinet, error) {
+	return listAll[Cabinet](ctx, c, "/api/2.0/cabinets/", opts, max)
+}
+
 func (c *Client) GetCabinet(ctx context.Context, id string) (*Cabinet, error) {
 	return getOne[Cabinet](ctx, c, "/api/2.0/cabinets/"+id+"/")
 }
@@ -542,6 +565,10 @@ func (c *Client) UpdateCabinet(ctx context.Context, id string, fields map[string
 
 func (c *Client) ListConfigurations(ctx context.Context, opts *ListOptions) ([]Configuration, int, error) {
 	return listPage[Configuration](ctx, c, "/api/2.0/configurations/", opts)
+}
+
+func (c *Client) ListAllConfigurations(ctx context.Context, opts *ListOptions, max int) ([]Configuration, error) {
+	return listAll[Configuration](ctx, c, "/api/2.0/configurations/", opts, max)
 }
 
 func (c *Client) GetConfiguration(ctx context.Context, id string) (*Configuration, error) {

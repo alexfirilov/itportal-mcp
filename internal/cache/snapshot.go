@@ -11,20 +11,27 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/alexfirilov/itportal-mcp/internal/itportal"
 )
 
 // Snapshot is an immutable point-in-time view of all ITPortal documentation.
 type Snapshot struct {
-	GeneratedAt time.Time
-	Markdown    string // Full documentation as LLM-friendly markdown (no passwords)
-	Companies   []itportal.Company
-	Sites       []itportal.Site
-	Devices     []itportal.Device
-	KBs         []itportal.KB
-	Contacts    []itportal.Contact
-	Agreements  []itportal.Agreement
-	IPNetworks  []itportal.IPNetwork
+	GeneratedAt    time.Time
+	Markdown       string // Full documentation as LLM-friendly markdown (no passwords)
+	Companies      []itportal.Company
+	Sites          []itportal.Site
+	Devices        []itportal.Device
+	KBs            []itportal.KB
+	Contacts       []itportal.Contact
+	Agreements     []itportal.Agreement
+	IPNetworks     []itportal.IPNetwork
+	Documents      []itportal.Document
+	Accounts       []itportal.Account
+	Facilities     []itportal.Facility
+	Cabinets       []itportal.Cabinet
+	Configurations []itportal.Configuration
 }
 
 // Cache holds the current snapshot and refreshes it on a configurable schedule.
@@ -59,6 +66,11 @@ func New(ctx context.Context, client *itportal.Client, limitPerEntity int, refre
 		"contacts", len(snap.Contacts),
 		"agreements", len(snap.Agreements),
 		"ip_networks", len(snap.IPNetworks),
+		"documents", len(snap.Documents),
+		"accounts", len(snap.Accounts),
+		"facilities", len(snap.Facilities),
+		"cabinets", len(snap.Cabinets),
+		"configurations", len(snap.Configurations),
 	)
 	return c, nil
 }
@@ -81,6 +93,14 @@ func (c *Cache) Refresh(ctx context.Context) (*Snapshot, error) {
 		"sites", len(snap.Sites),
 		"devices", len(snap.Devices),
 		"kbs", len(snap.KBs),
+		"contacts", len(snap.Contacts),
+		"agreements", len(snap.Agreements),
+		"ip_networks", len(snap.IPNetworks),
+		"documents", len(snap.Documents),
+		"accounts", len(snap.Accounts),
+		"facilities", len(snap.Facilities),
+		"cabinets", len(snap.Cabinets),
+		"configurations", len(snap.Configurations),
 	)
 	return snap, nil
 }
@@ -105,65 +125,161 @@ func (c *Cache) StartBackgroundRefresh(ctx context.Context) {
 				c.current.Store(snap)
 				c.logger.Info("background snapshot refresh complete",
 					"companies", len(snap.Companies),
+					"sites", len(snap.Sites),
 					"devices", len(snap.Devices),
 					"kbs", len(snap.KBs),
+					"contacts", len(snap.Contacts),
+					"agreements", len(snap.Agreements),
+					"ip_networks", len(snap.IPNetworks),
+					"documents", len(snap.Documents),
+					"accounts", len(snap.Accounts),
+					"facilities", len(snap.Facilities),
+					"cabinets", len(snap.Cabinets),
+					"configurations", len(snap.Configurations),
 				)
 			}
 		}
 	}()
 }
 
-// build fetches all entity types from ITPortal and assembles an immutable Snapshot.
+// build fetches all entity types from ITPortal concurrently and assembles an immutable Snapshot.
 func (c *Cache) build(ctx context.Context) (*Snapshot, error) {
 	buildCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
 	lim := c.limitPerEntity
+	var (
+		companies      []itportal.Company
+		sites          []itportal.Site
+		devices        []itportal.Device
+		kbs            []itportal.KB
+		contacts       []itportal.Contact
+		agreements     []itportal.Agreement
+		ipNetworks     []itportal.IPNetwork
+		documents      []itportal.Document
+		accounts       []itportal.Account
+		facilities     []itportal.Facility
+		cabinets       []itportal.Cabinet
+		configurations []itportal.Configuration
+	)
 
-	companies, err := c.client.ListAllCompanies(buildCtx, nil, lim)
-	if err != nil {
-		return nil, fmt.Errorf("list companies: %w", err)
-	}
+	eg, egCtx := errgroup.WithContext(buildCtx)
 
-	sites, err := c.client.ListAllSites(buildCtx, nil, lim)
-	if err != nil {
-		return nil, fmt.Errorf("list sites: %w", err)
-	}
+	eg.Go(func() error {
+		var err error
+		companies, err = c.client.ListAllCompanies(egCtx, nil, lim)
+		if err != nil {
+			return fmt.Errorf("list companies: %w", err)
+		}
+		return nil
+	})
+	eg.Go(func() error {
+		var err error
+		sites, err = c.client.ListAllSites(egCtx, nil, lim)
+		if err != nil {
+			return fmt.Errorf("list sites: %w", err)
+		}
+		return nil
+	})
+	eg.Go(func() error {
+		var err error
+		devices, err = c.client.ListAllDevices(egCtx, nil, lim)
+		if err != nil {
+			return fmt.Errorf("list devices: %w", err)
+		}
+		return nil
+	})
+	eg.Go(func() error {
+		var err error
+		kbs, err = c.client.ListAllKBs(egCtx, nil, lim)
+		if err != nil {
+			return fmt.Errorf("list KBs: %w", err)
+		}
+		return nil
+	})
+	eg.Go(func() error {
+		var err error
+		contacts, err = c.client.ListAllContacts(egCtx, nil, lim)
+		if err != nil {
+			return fmt.Errorf("list contacts: %w", err)
+		}
+		return nil
+	})
+	eg.Go(func() error {
+		var err error
+		agreements, err = c.client.ListAllAgreements(egCtx, nil, lim)
+		if err != nil {
+			return fmt.Errorf("list agreements: %w", err)
+		}
+		return nil
+	})
+	eg.Go(func() error {
+		var err error
+		ipNetworks, err = c.client.ListAllIPNetworks(egCtx, nil, lim)
+		if err != nil {
+			return fmt.Errorf("list IP networks: %w", err)
+		}
+		return nil
+	})
+	eg.Go(func() error {
+		var err error
+		documents, err = c.client.ListAllDocuments(egCtx, nil, lim)
+		if err != nil {
+			return fmt.Errorf("list documents: %w", err)
+		}
+		return nil
+	})
+	eg.Go(func() error {
+		var err error
+		accounts, err = c.client.ListAllAccounts(egCtx, nil, lim)
+		if err != nil {
+			return fmt.Errorf("list accounts: %w", err)
+		}
+		return nil
+	})
+	eg.Go(func() error {
+		var err error
+		facilities, err = c.client.ListAllFacilities(egCtx, nil, lim)
+		if err != nil {
+			return fmt.Errorf("list facilities: %w", err)
+		}
+		return nil
+	})
+	eg.Go(func() error {
+		var err error
+		cabinets, err = c.client.ListAllCabinets(egCtx, nil, lim)
+		if err != nil {
+			return fmt.Errorf("list cabinets: %w", err)
+		}
+		return nil
+	})
+	eg.Go(func() error {
+		var err error
+		configurations, err = c.client.ListAllConfigurations(egCtx, nil, lim)
+		if err != nil {
+			return fmt.Errorf("list configurations: %w", err)
+		}
+		return nil
+	})
 
-	devices, err := c.client.ListAllDevices(buildCtx, nil, lim)
-	if err != nil {
-		return nil, fmt.Errorf("list devices: %w", err)
-	}
-
-	kbs, err := c.client.ListAllKBs(buildCtx, nil, lim)
-	if err != nil {
-		return nil, fmt.Errorf("list KBs: %w", err)
-	}
-
-	contacts, err := c.client.ListAllContacts(buildCtx, nil, lim)
-	if err != nil {
-		return nil, fmt.Errorf("list contacts: %w", err)
-	}
-
-	agreements, err := c.client.ListAllAgreements(buildCtx, nil, lim)
-	if err != nil {
-		return nil, fmt.Errorf("list agreements: %w", err)
-	}
-
-	ipNetworks, err := c.client.ListAllIPNetworks(buildCtx, nil, lim)
-	if err != nil {
-		return nil, fmt.Errorf("list IP networks: %w", err)
+	if err := eg.Wait(); err != nil {
+		return nil, err
 	}
 
 	snap := &Snapshot{
-		GeneratedAt: time.Now().UTC(),
-		Companies:   companies,
-		Sites:       sites,
-		Devices:     devices,
-		KBs:         kbs,
-		Contacts:    contacts,
-		Agreements:  agreements,
-		IPNetworks:  ipNetworks,
+		GeneratedAt:    time.Now().UTC(),
+		Companies:      companies,
+		Sites:          sites,
+		Devices:        devices,
+		KBs:            kbs,
+		Contacts:       contacts,
+		Agreements:     agreements,
+		IPNetworks:     ipNetworks,
+		Documents:      documents,
+		Accounts:       accounts,
+		Facilities:     facilities,
+		Cabinets:       cabinets,
+		Configurations: configurations,
 	}
 	snap.Markdown = buildMarkdown(snap)
 	return snap, nil
@@ -176,8 +292,9 @@ func buildMarkdown(s *Snapshot) string {
 
 	fmt.Fprintf(&b, "# ITPortal Documentation Snapshot\n\n")
 	fmt.Fprintf(&b, "_Generated: %s UTC_\n\n", s.GeneratedAt.Format("2006-01-02 15:04:05"))
-	fmt.Fprintf(&b, "**Summary:** %d companies · %d sites · %d devices · %d KB articles · %d contacts · %d agreements · %d IP networks\n\n",
-		len(s.Companies), len(s.Sites), len(s.Devices), len(s.KBs), len(s.Contacts), len(s.Agreements), len(s.IPNetworks))
+	fmt.Fprintf(&b, "**Summary:** %d companies · %d sites · %d devices · %d KB articles · %d contacts · %d agreements · %d IP networks · %d documents · %d accounts · %d facilities · %d cabinets · %d configurations\n\n",
+		len(s.Companies), len(s.Sites), len(s.Devices), len(s.KBs), len(s.Contacts), len(s.Agreements), len(s.IPNetworks),
+		len(s.Documents), len(s.Accounts), len(s.Facilities), len(s.Cabinets), len(s.Configurations))
 	b.WriteString("---\n\n")
 
 	// ---- Companies ----
@@ -427,6 +544,212 @@ func buildMarkdown(s *Snapshot) string {
 			}
 			if net.Description != "" {
 				fmt.Fprintf(&b, "- **Notes**: %s\n", truncate(net.Description, 200))
+			}
+			b.WriteString("\n")
+		}
+	}
+
+	// ---- Documents ----
+	if len(s.Documents) > 0 {
+		fmt.Fprintf(&b, "## Documents (%d)\n\n", len(s.Documents))
+		for _, doc := range s.Documents {
+			companyCtx := ""
+			if doc.Company != nil {
+				companyCtx = " — " + doc.Company.Name
+			}
+			typeName := ""
+			if doc.Type != nil {
+				typeName = " [" + doc.Type.Name + "]"
+			}
+			fmt.Fprintf(&b, "### %s (ID: %d)%s%s\n", doc.Description, doc.ID, typeName, companyCtx)
+			if doc.Company != nil {
+				fmt.Fprintf(&b, "- **Company**: %s (ID: %d)\n", doc.Company.Name, doc.Company.ID)
+			}
+			if doc.Type != nil {
+				fmt.Fprintf(&b, "- **Type**: %s\n", doc.Type.Name)
+			}
+			if doc.URLLink != "" {
+				fmt.Fprintf(&b, "- **Link**: %s\n", doc.URLLink)
+			}
+			if doc.Modified != "" {
+				fmt.Fprintf(&b, "- **Last Modified**: %s\n", doc.Modified)
+			}
+			if doc.URL != "" {
+				fmt.Fprintf(&b, "- **Portal Link**: %s\n", doc.URL)
+			}
+			b.WriteString("\n")
+		}
+	}
+
+	// ---- Accounts ----
+	// Passwords and 2FA codes are intentionally omitted.
+	if len(s.Accounts) > 0 {
+		fmt.Fprintf(&b, "## Accounts (%d)\n\n", len(s.Accounts))
+		for _, ac := range s.Accounts {
+			companyCtx := ""
+			if ac.Company != nil {
+				companyCtx = " — " + ac.Company.Name
+			}
+			typeName := ""
+			if ac.Type != nil {
+				typeName = " [" + ac.Type.Name + "]"
+			}
+			heading := fmt.Sprintf("Account ID: %d%s%s", ac.ID, typeName, companyCtx)
+			fmt.Fprintf(&b, "### %s\n", heading)
+			if ac.Company != nil {
+				fmt.Fprintf(&b, "- **Company**: %s (ID: %d)\n", ac.Company.Name, ac.Company.ID)
+			}
+			if ac.Type != nil {
+				fmt.Fprintf(&b, "- **Type**: %s\n", ac.Type.Name)
+			}
+			if ac.Username != "" {
+				fmt.Fprintf(&b, "- **Username**: %s\n", ac.Username)
+			}
+			if ac.AccountNumber != "" {
+				fmt.Fprintf(&b, "- **Account Number**: %s\n", ac.AccountNumber)
+			}
+			if ac.Email != "" {
+				fmt.Fprintf(&b, "- **Email**: %s\n", ac.Email)
+			}
+			if ac.Representative != "" {
+				fmt.Fprintf(&b, "- **Representative**: %s\n", ac.Representative)
+			}
+			if ac.TechTelephone != "" {
+				fmt.Fprintf(&b, "- **Tech Support**: %s\n", ac.TechTelephone)
+			}
+			if ac.SalesTelephone != "" {
+				fmt.Fprintf(&b, "- **Sales**: %s\n", ac.SalesTelephone)
+			}
+			if ac.AccountURL != "" {
+				fmt.Fprintf(&b, "- **Account URL**: %s\n", ac.AccountURL)
+			}
+			if ac.Expires != "" {
+				fmt.Fprintf(&b, "- **Expires**: %s\n", ac.Expires)
+			}
+			if ac.Description != "" {
+				fmt.Fprintf(&b, "- **Description**: %s\n", truncate(ac.Description, 300))
+			}
+			if ac.Notes != "" {
+				fmt.Fprintf(&b, "- **Notes**: %s\n", truncate(ac.Notes, 300))
+			}
+			if ac.URL != "" {
+				fmt.Fprintf(&b, "- **Portal Link**: %s\n", ac.URL)
+			}
+			b.WriteString("\n")
+		}
+	}
+
+	// ---- Facilities ----
+	if len(s.Facilities) > 0 {
+		fmt.Fprintf(&b, "## Facilities (%d)\n\n", len(s.Facilities))
+		for _, f := range s.Facilities {
+			companyCtx := ""
+			if f.Company != nil {
+				companyCtx = " — " + f.Company.Name
+			}
+			typeName := ""
+			if f.Type != nil {
+				typeName = " [" + f.Type.Name + "]"
+			}
+			fmt.Fprintf(&b, "### %s (ID: %d)%s%s\n", f.Name, f.ID, typeName, companyCtx)
+			if f.Company != nil {
+				fmt.Fprintf(&b, "- **Company**: %s (ID: %d)\n", f.Company.Name, f.Company.ID)
+			}
+			if f.Site != nil {
+				fmt.Fprintf(&b, "- **Site**: %s (ID: %d)\n", f.Site.Name, f.Site.ID)
+			}
+			if f.Type != nil {
+				fmt.Fprintf(&b, "- **Type**: %s\n", f.Type.Name)
+			}
+			if f.Description != "" {
+				fmt.Fprintf(&b, "- **Description**: %s\n", truncate(f.Description, 300))
+			}
+			if f.NumberOfUsers > 0 {
+				fmt.Fprintf(&b, "- **Number of Users**: %d\n", f.NumberOfUsers)
+			}
+			if f.Address != nil {
+				fmt.Fprintf(&b, "- **Address**: %s\n", formatAddress(f.Address))
+			}
+			if f.Notes != "" {
+				fmt.Fprintf(&b, "- **Notes**: %s\n", truncate(f.Notes, 300))
+			}
+			if f.URL != "" {
+				fmt.Fprintf(&b, "- **Portal Link**: %s\n", f.URL)
+			}
+			b.WriteString("\n")
+		}
+	}
+
+	// ---- Cabinets ----
+	if len(s.Cabinets) > 0 {
+		fmt.Fprintf(&b, "## Cabinets (%d)\n\n", len(s.Cabinets))
+		for _, cab := range s.Cabinets {
+			companyCtx := ""
+			if cab.Company != nil {
+				companyCtx = " — " + cab.Company.Name
+			}
+			fmt.Fprintf(&b, "### %s (ID: %d)%s\n", cab.Name, cab.ID, companyCtx)
+			if cab.Company != nil {
+				fmt.Fprintf(&b, "- **Company**: %s (ID: %d)\n", cab.Company.Name, cab.Company.ID)
+			}
+			if cab.Site != nil {
+				fmt.Fprintf(&b, "- **Site**: %s (ID: %d)\n", cab.Site.Name, cab.Site.ID)
+			}
+			if cab.Facility != nil {
+				fmt.Fprintf(&b, "- **Facility**: %s (ID: %d)\n", cab.Facility.Name, cab.Facility.ID)
+			}
+			if cab.Contact != nil {
+				fmt.Fprintf(&b, "- **Contact**: %s (ID: %d)\n", cab.Contact.Name, cab.Contact.ID)
+			}
+			if cab.Description != "" {
+				fmt.Fprintf(&b, "- **Description**: %s\n", truncate(cab.Description, 300))
+			}
+			if cab.Address != nil {
+				fmt.Fprintf(&b, "- **Address**: %s\n", formatAddress(cab.Address))
+			}
+			if cab.Notes != "" {
+				fmt.Fprintf(&b, "- **Notes**: %s\n", truncate(cab.Notes, 300))
+			}
+			if cab.URL != "" {
+				fmt.Fprintf(&b, "- **Portal Link**: %s\n", cab.URL)
+			}
+			b.WriteString("\n")
+		}
+	}
+
+	// ---- Configurations ----
+	if len(s.Configurations) > 0 {
+		fmt.Fprintf(&b, "## Configurations (%d)\n\n", len(s.Configurations))
+		for _, cfg := range s.Configurations {
+			companyCtx := ""
+			if cfg.Company != nil {
+				companyCtx = " — " + cfg.Company.Name
+			}
+			typeName := ""
+			if cfg.Type != nil {
+				typeName = " [" + cfg.Type.Name + "]"
+			}
+			fmt.Fprintf(&b, "### %s (ID: %d)%s%s\n", cfg.Name, cfg.ID, typeName, companyCtx)
+			if cfg.Company != nil {
+				fmt.Fprintf(&b, "- **Company**: %s (ID: %d)\n", cfg.Company.Name, cfg.Company.ID)
+			}
+			if cfg.Type != nil {
+				fmt.Fprintf(&b, "- **Type**: %s\n", cfg.Type.Name)
+			}
+			if cfg.Device != nil {
+				fmt.Fprintf(&b, "- **Device**: %s (ID: %d)\n", cfg.Device.Name, cfg.Device.ID)
+			}
+			if cfg.InstallDate != "" {
+				fmt.Fprintf(&b, "- **Install Date**: %s\n", cfg.InstallDate)
+			}
+			if cfg.DateExpires != "" {
+				fmt.Fprintf(&b, "- **Expires**: %s\n", cfg.DateExpires)
+			}
+			if cfg.Notes != "" {
+				fmt.Fprintf(&b, "- **Notes**: %s\n", truncate(cfg.Notes, 300))
+			}
+			if cfg.URL != "" {
+				fmt.Fprintf(&b, "- **Portal Link**: %s\n", cfg.URL)
 			}
 			b.WriteString("\n")
 		}

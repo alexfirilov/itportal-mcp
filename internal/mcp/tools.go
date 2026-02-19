@@ -19,7 +19,7 @@ import (
 
 type SearchDocsInput struct {
 	Query      string `json:"query" jsonschema:"Search query to find in the documentation snapshot. Supports partial matches."`
-	EntityType string `json:"entity_type,omitempty" jsonschema:"Optional: restrict search to a section. Values: company, site, device, kb, contact, agreement, ipnetwork"`
+	EntityType string `json:"entity_type,omitempty" jsonschema:"Optional: restrict search to a section. Values: company, site, device, kb, contact, agreement, ipnetwork, document, account, facility, cabinet, configuration"`
 }
 
 type ListEntitiesInput struct {
@@ -150,8 +150,10 @@ func (h *Handler) SearchDocs(ctx context.Context, _ *sdkmcp.CallToolRequest, inp
 	}
 
 	if len(matches) == 0 {
-		return toolText(fmt.Sprintf("No results found for %q in the documentation snapshot.\n\nSnapshot coverage: %d companies, %d sites, %d devices, %d KB articles, %d contacts.",
-			input.Query, len(snap.Companies), len(snap.Sites), len(snap.Devices), len(snap.KBs), len(snap.Contacts))), nil, nil
+		return toolText(fmt.Sprintf("No results found for %q in the documentation snapshot.\n\nSnapshot coverage: %d companies, %d sites, %d devices, %d KB articles, %d contacts, %d agreements, %d IP networks, %d documents, %d accounts, %d facilities, %d cabinets, %d configurations.",
+			input.Query, len(snap.Companies), len(snap.Sites), len(snap.Devices), len(snap.KBs), len(snap.Contacts),
+			len(snap.Agreements), len(snap.IPNetworks), len(snap.Documents), len(snap.Accounts),
+			len(snap.Facilities), len(snap.Cabinets), len(snap.Configurations))), nil, nil
 	}
 
 	// Deduplicate blocks.
@@ -795,10 +797,11 @@ func (h *Handler) RefreshSnapshot(ctx context.Context, _ *sdkmcp.CallToolRequest
 		return nil, nil, fmt.Errorf("refresh snapshot: %w", err)
 	}
 	return toolText(fmt.Sprintf(
-		"Snapshot refreshed at %s UTC.\nCompanies: %d · Sites: %d · Devices: %d · KB articles: %d · Contacts: %d · Agreements: %d · IP networks: %d",
+		"Snapshot refreshed at %s UTC.\nCompanies: %d · Sites: %d · Devices: %d · KB articles: %d · Contacts: %d · Agreements: %d · IP networks: %d · Documents: %d · Accounts: %d · Facilities: %d · Cabinets: %d · Configurations: %d",
 		snap.GeneratedAt.Format("2006-01-02 15:04:05"),
 		len(snap.Companies), len(snap.Sites), len(snap.Devices),
 		len(snap.KBs), len(snap.Contacts), len(snap.Agreements), len(snap.IPNetworks),
+		len(snap.Documents), len(snap.Accounts), len(snap.Facilities), len(snap.Cabinets), len(snap.Configurations),
 	)), nil, nil
 }
 
@@ -842,6 +845,16 @@ func sectionHeader(entityType string) string {
 		return "Agreements"
 	case "ipnetwork":
 		return "IP Networks"
+	case "document":
+		return "Documents"
+	case "account":
+		return "Accounts"
+	case "facility":
+		return "Facilities"
+	case "cabinet":
+		return "Cabinets"
+	case "configuration":
+		return "Configurations"
 	}
 	return ""
 }
