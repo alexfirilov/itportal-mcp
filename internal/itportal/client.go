@@ -70,6 +70,11 @@ func NewClient(baseURL, apiKey string, opts ...Option) *Client {
 	return c
 }
 
+// BaseURL returns the configured ITPortal instance root (no trailing slash).
+func (c *Client) BaseURL() string {
+	return c.baseURL
+}
+
 // buildAuthHeader returns the Authorization header value for the given key.
 func buildAuthHeader(apiKey string) string {
 	k := strings.TrimSpace(apiKey)

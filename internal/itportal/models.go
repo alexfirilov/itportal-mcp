@@ -379,6 +379,7 @@ type IPNetwork struct {
 	DueDate        string            `json:"dueDate,omitempty"`
 	Notes          string            `json:"notes,omitempty"`
 	Modified       string            `json:"modified,omitempty"`
+	URL            string            `json:"url,omitempty"`
 }
 
 // ---- Facility ----
