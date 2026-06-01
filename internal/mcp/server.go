@@ -20,14 +20,15 @@ type Handler struct {
 func NewServer(client *itportal.Client, c *cache.Cache) *sdkmcp.Server {
 	h := &Handler{client: client, cache: c}
 
-	instructions := `You are an ITPortal documentation assistant for a Managed Service Provider.
+	instructions := `You are an ITPortal documentation assistant for a Managed Service Provider, backed by
+the ITPortal REST API v2.1.
 
 You have access to:
 1. A live documentation snapshot (itportal://snapshot) containing all documented companies, sites,
    devices, knowledge base articles, contacts, agreements, IP networks, documents, accounts,
    facilities, cabinets and configurations. Reading this resource once per conversation loads the
    entire environment into context and is cached — subsequent turns do not re-charge for those tokens.
-2. Tools to search, query, create and update documentation in real time.
+2. Tools to search, query, create, update and delete documentation in real time.
 
 Workflow for answering questions:
 1. At the start of every conversation, read itportal://snapshot to load the full environment into
@@ -35,23 +36,28 @@ Workflow for answering questions:
 2. For follow-up targeted lookups within the same conversation, use search_docs to quickly find
    relevant sections without re-reading the full snapshot.
 3. For specific entity sub-resources (IPs, notes, management URLs on a device), use get_entity_details.
-4. The snapshot auto-refreshes every 30 minutes. Call refresh_snapshot if you need guaranteed
-   fresh data mid-conversation, then re-read itportal://snapshot to update your context.
+4. The snapshot auto-refreshes periodically. Call refresh_snapshot if you need guaranteed fresh data
+   mid-conversation, then re-read itportal://snapshot to update your context.
 
-Workflow for documenting new information:
-- Use create_device for hardware, create_kb_article for procedures/notes.
-- After creation, optionally add IPs with add_device_ip and notes with add_device_note.
-- To attach an image or config file, use upload_file with base64-encoded content.
-- Use update_entity to correct or extend existing records.
+Tool guide:
+- Read:    search_docs, list_entities, get_entity_details, get_logs, get_credentials.
+- Create:  create_device, create_kb_article, create_entity (generic), add_device_ip, add_device_note,
+           add_interaction, upload_file.
+- Modify:  update_entity, delete_entity.
+- Linking & files: manage_relationship (link two objects), manage_folder + manage_folder_file
+           (per-object document trees), manage_credential (additional credentials).
+- Admin:   manage_type (custom type lists), manage_kb_category (KB categories/subcategories).
 
 Field conventions:
 - Reference fields (company, site, type) use {"id": N} objects.
 - Dates are YYYY-MM-DD strings.
-- The "url" field on entities is a read-only portal deep-link, not editable.`
+- The "url" field on entities is a read-only portal deep-link, not editable.
+- Relationship/credential targets use an itemType + id pair (e.g. {"itemType":"Device","id":42}).
+- Credentials (passwords, 2FA) are never in the snapshot; read them explicitly with get_credentials.`
 
 	server := sdkmcp.NewServer(&sdkmcp.Implementation{
 		Name:    "itportal-mcp",
-		Version: "1.0.0",
+		Version: "2.1.0",
 	}, &sdkmcp.ServerOptions{
 		Instructions: instructions,
 	})
@@ -156,8 +162,64 @@ Field conventions:
 
 	sdkmcp.AddTool(server, &sdkmcp.Tool{
 		Name:        "refresh_snapshot",
-		Description: "Force an immediate rebuild of the documentation snapshot from ITPortal. Use after making bulk changes or when you need guaranteed up-to-date data. The snapshot normally auto-refreshes every 30 minutes.",
+		Description: "Force an immediate rebuild of the documentation snapshot from ITPortal. Use after making bulk changes or when you need guaranteed up-to-date data. The snapshot normally auto-refreshes on a schedule.",
 	}, h.RefreshSnapshot)
+
+	sdkmcp.AddTool(server, &sdkmcp.Tool{
+		Name:        "delete_entity",
+		Description: "Delete an entity by type and ID. Supports company, site, device, kb, contact, account, agreement, document, facility, cabinet, configuration, ipnetwork, address, additional_credential and interaction. Deletes are permanent — confirm the target first.",
+	}, h.DeleteEntity)
+
+	// ---- v2.1: relationships, folders, files ----
+
+	sdkmcp.AddTool(server, &sdkmcp.Tool{
+		Name:        "manage_relationship",
+		Description: "List, create, update or delete relationships (links) between two portal objects. Links are symmetric — a device↔document link appears from both sides. Use action=create with object_type/object_id as the source and target_type/target_id as the destination.",
+	}, h.ManageRelationship)
+
+	sdkmcp.AddTool(server, &sdkmcp.Tool{
+		Name:        "manage_folder",
+		Description: "Manage the folder tree attached to an object (defaults to documents). Actions: list, get, create, update, delete. The first list call auto-creates Root_Folder; create child folders by passing parent_folder_id.",
+	}, h.ManageFolder)
+
+	sdkmcp.AddTool(server, &sdkmcp.Tool{
+		Name:        "manage_folder_file",
+		Description: "Upload, list, download, rename or delete files inside an object's folder. Upload takes base64-encoded content; download returns base64. A folder cannot be deleted while it still contains files.",
+	}, h.ManageFolderFile)
+
+	// ---- v2.1: admin / metadata ----
+
+	sdkmcp.AddTool(server, &sdkmcp.Tool{
+		Name:        "manage_type",
+		Description: "List, create, rename or delete the custom type lists used by entities (kinds: account, agreement, company, contact, device, document, facility, configuration). A type in use cannot be deleted.",
+	}, h.ManageType)
+
+	sdkmcp.AddTool(server, &sdkmcp.Tool{
+		Name:        "manage_kb_category",
+		Description: "Manage knowledge-base categories and subcategories: list, create, update, delete, and create_subcategory/update_subcategory/delete_subcategory. A category containing articles cannot be deleted.",
+	}, h.ManageKBCategory)
+
+	sdkmcp.AddTool(server, &sdkmcp.Tool{
+		Name:        "add_interaction",
+		Description: "Add (or list) timeline interaction notes on an object. Valid object types: account, agreement, cabinet, configuration, contact, device, document, facility, ipnetwork, kb, site. Company/client is not supported.",
+	}, h.AddInteraction)
+
+	// ---- v2.1: credentials & logs ----
+
+	sdkmcp.AddTool(server, &sdkmcp.Tool{
+		Name:        "manage_credential",
+		Description: "Create, read, update or delete additional credentials and attach them to any object via portal_object_type/portal_object_id. Handles secrets — only call when explicitly asked to store or change a credential.",
+	}, h.ManageCredential)
+
+	sdkmcp.AddTool(server, &sdkmcp.Tool{
+		Name:        "get_credentials",
+		Description: "Retrieve the stored credentials (username/password/2FA) for an account, device or configuration. Returns secrets, so only call when the user explicitly needs them. Requires the server's encryption key for custom-encryption orgs.",
+	}, h.GetCredentials)
+
+	sdkmcp.AddTool(server, &sdkmcp.Tool{
+		Name:        "get_logs",
+		Description: "Query ITPortal audit logs: userAccess, adminAccess, loginLogout, passwordAccess, passwordChanges. Most require a start_date/end_date range (YYYY-MM-DD).",
+	}, h.GetLogs)
 
 	return server
 }

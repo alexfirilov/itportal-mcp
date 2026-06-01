@@ -36,11 +36,14 @@ func main() {
 	defer stop()
 
 	// Build ITPortal API client.
-	itportalClient := itportal.NewClient(cfg.ITPortalBaseURL, cfg.ITPortalAPIKey)
+	itportalClient := itportal.NewClient(cfg.ITPortalBaseURL, cfg.ITPortalAPIKey,
+		itportal.WithAPIVersion(cfg.ITPortalAPIVersion),
+		itportal.WithEncryptionKey(cfg.ITPortalEncryptionKey),
+	)
 
 	// Build documentation cache (blocks until initial snapshot succeeds).
 	logger.Info("building initial documentation snapshot — this may take a moment…")
-	docCache, err := cache.New(ctx, itportalClient, cfg.SnapshotLimitPerEntity, cfg.SnapshotRefreshInterval, logger)
+	docCache, err := cache.New(ctx, itportalClient, cfg.SnapshotLimitPerEntity, cfg.SnapshotDeviceLimit, cfg.SnapshotRefreshInterval, logger)
 	if err != nil {
 		logger.Error("failed to build initial documentation snapshot", "error", err)
 		os.Exit(1)
@@ -77,6 +80,7 @@ func main() {
 		"addr", cfg.ListenAddr,
 		"snapshot_refresh_interval", cfg.SnapshotRefreshInterval.String(),
 		"snapshot_limit_per_entity", cfg.SnapshotLimitPerEntity,
+		"snapshot_device_limit", cfg.SnapshotDeviceLimit,
 	)
 	if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		logger.Error("HTTP server error", "error", err)

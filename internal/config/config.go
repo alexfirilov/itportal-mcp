@@ -5,16 +5,21 @@ import (
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/alexfirilov/itportal-mcp/internal/itportal"
 )
 
 // Config holds all runtime configuration sourced from environment variables.
 type Config struct {
 	ITPortalBaseURL         string
 	ITPortalAPIKey          string
+	ITPortalAPIVersion      string
+	ITPortalEncryptionKey   string
 	MCPAPIKey               string
 	ListenAddr              string
 	SnapshotRefreshInterval time.Duration
 	SnapshotLimitPerEntity  int
+	SnapshotDeviceLimit     int
 }
 
 // Load reads and validates configuration from environment variables.
@@ -34,6 +39,13 @@ func Load() (*Config, error) {
 	if mcpKey == "" {
 		return nil, fmt.Errorf("MCP_API_KEY is required")
 	}
+
+	apiVersion := os.Getenv("ITPORTAL_API_VERSION")
+	if apiVersion == "" {
+		apiVersion = itportal.DefaultAPIVersion
+	}
+
+	encryptionKey := os.Getenv("ITPORTAL_ENCRYPTION_KEY")
 
 	listenAddr := os.Getenv("MCP_LISTEN_ADDR")
 	if listenAddr == "" {
@@ -58,12 +70,26 @@ func Load() (*Config, error) {
 		limitPerEntity = n
 	}
 
+	// Devices are typically the largest entity set, so they get their own cap.
+	// Defaults to limitPerEntity when unset.
+	deviceLimit := limitPerEntity
+	if v := os.Getenv("SNAPSHOT_DEVICE_LIMIT"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid SNAPSHOT_DEVICE_LIMIT %q: %w", v, err)
+		}
+		deviceLimit = n
+	}
+
 	return &Config{
 		ITPortalBaseURL:         baseURL,
 		ITPortalAPIKey:          apiKey,
+		ITPortalAPIVersion:      apiVersion,
+		ITPortalEncryptionKey:   encryptionKey,
 		MCPAPIKey:               mcpKey,
 		ListenAddr:              listenAddr,
 		SnapshotRefreshInterval: refreshInterval,
 		SnapshotLimitPerEntity:  limitPerEntity,
+		SnapshotDeviceLimit:     deviceLimit,
 	}, nil
 }

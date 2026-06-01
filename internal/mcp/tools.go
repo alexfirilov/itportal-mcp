@@ -294,8 +294,50 @@ func (h *Handler) ListEntities(ctx context.Context, _ *sdkmcp.CallToolRequest, i
 			return nil, nil, fmt.Errorf("list templates: %w", err)
 		}
 		items, total = v, t
+	case "address":
+		v, t, err := h.client.ListAddresses(ctx, opts)
+		if err != nil {
+			return nil, nil, fmt.Errorf("list addresses: %w", err)
+		}
+		items, total = v, t
+	case "form":
+		v, t, err := h.client.ListForms(ctx, opts)
+		if err != nil {
+			return nil, nil, fmt.Errorf("list forms: %w", err)
+		}
+		items, total = v, t
+	case "additionalcredential":
+		v, t, err := h.client.ListAdditionalCredentials(ctx, opts)
+		if err != nil {
+			return nil, nil, fmt.Errorf("list additional credentials: %w", err)
+		}
+		items, total = v, t
+	case "user":
+		v, err := h.client.ListUsers(ctx)
+		if err != nil {
+			return nil, nil, fmt.Errorf("list users: %w", err)
+		}
+		items, total = v, len(v)
+	case "country":
+		v, err := h.client.ListCountries(ctx)
+		if err != nil {
+			return nil, nil, fmt.Errorf("list countries: %w", err)
+		}
+		items, total = v, len(v)
+	case "securitygroup":
+		v, err := h.client.ListSecurityGroups(ctx)
+		if err != nil {
+			return nil, nil, fmt.Errorf("list security groups: %w", err)
+		}
+		items, total = v, len(v)
+	case "maincontact":
+		v, err := h.client.ListMainContacts(ctx)
+		if err != nil {
+			return nil, nil, fmt.Errorf("list main contacts: %w", err)
+		}
+		items, total = v, len(v)
 	default:
-		return toolError(fmt.Sprintf("unknown entity_type %q. Valid values: company, site, device, kb, contact, account, agreement, document, facility, cabinet, configuration, ipnetwork, kb_category, device_type, template", input.EntityType)), nil, nil
+		return toolError(fmt.Sprintf("unknown entity_type %q. Valid values: company, site, device, kb, contact, account, agreement, document, facility, cabinet, configuration, ipnetwork, address, form, additional_credential, kb_category, device_type, template, user, country, security_group, main_contact", input.EntityType)), nil, nil
 	}
 
 	out, err := json.MarshalIndent(result{Total: total, Offset: input.Offset, Limit: input.Limit, Items: items}, "", "  ")
@@ -650,6 +692,15 @@ func (h *Handler) CreateEntity(ctx context.Context, _ *sdkmcp.CallToolRequest, i
 				return 0, "", fmt.Errorf("create configuration: %w", err)
 			}
 			return created.ID, created.URL, nil
+		})
+	case "address":
+		var v itportal.Address
+		return unmarshalAndCreate(&v, func() (int, string, error) {
+			created, err := h.client.CreateAddress(ctx, &v)
+			if err != nil {
+				return 0, "", fmt.Errorf("create address: %w", err)
+			}
+			return created.ID, "", nil
 		})
 	default:
 		return toolError(fmt.Sprintf("entity_type %q is not supported for create_entity. Use create_device or create_kb_article for those types.", input.EntityType)), nil, nil

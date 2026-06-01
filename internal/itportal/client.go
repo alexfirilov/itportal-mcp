@@ -3,35 +3,82 @@ package itportal
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
-	"mime/multipart"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// Client is an authenticated HTTP client for the ITPortal REST API v2.0.
+// DefaultAPIVersion is the ITPortal REST API version targeted when none is configured.
+const DefaultAPIVersion = "2.1"
+
+// internalVersionPrefix is the version embedded in path literals throughout this file.
+// do() rewrites it to the configured apiVersion at request time, so call-sites can keep
+// using stable, readable path strings.
+const internalVersionPrefix = "/api/2.0/"
+
+// locationIDPattern extracts the trailing numeric id from a Location header.
+var locationIDPattern = regexp.MustCompile(`(\d+)/?$`)
+
+// Client is an authenticated HTTP client for the ITPortal REST API (v2.x).
 type Client struct {
-	baseURL    string
-	apiKey     string
-	httpClient *http.Client
+	baseURL       string
+	apiVersion    string
+	authHeader    string
+	encryptionKey string
+	httpClient    *http.Client
+}
+
+// Option configures a Client.
+type Option func(*Client)
+
+// WithAPIVersion overrides the API version (default DefaultAPIVersion).
+func WithAPIVersion(v string) Option {
+	return func(c *Client) {
+		if v != "" {
+			c.apiVersion = v
+		}
+	}
+}
+
+// WithEncryptionKey sets the custom encryption key sent as X-Encryption-Key on
+// credential endpoints (only needed when the org uses custom encryption).
+func WithEncryptionKey(k string) Option {
+	return func(c *Client) { c.encryptionKey = k }
 }
 
 // NewClient creates a new ITPortal API client.
 // baseURL is the root of the ITPortal instance (no trailing slash).
-// apiKey is the Authorization token (found in ITPortal Settings → API).
-func NewClient(baseURL, apiKey string) *Client {
-	return &Client{
-		baseURL: strings.TrimRight(baseURL, "/"),
-		apiKey:  apiKey,
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+// apiKey is the ITPortal API token; it is sent as HTTP Basic auth (key as password)
+// unless it already carries an explicit scheme ("Basic "/"Bearer ").
+func NewClient(baseURL, apiKey string, opts ...Option) *Client {
+	c := &Client{
+		baseURL:    strings.TrimRight(baseURL, "/"),
+		apiVersion: DefaultAPIVersion,
+		authHeader: buildAuthHeader(apiKey),
+		httpClient: &http.Client{Timeout: 60 * time.Second},
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
+}
+
+// buildAuthHeader returns the Authorization header value for the given key.
+func buildAuthHeader(apiKey string) string {
+	k := strings.TrimSpace(apiKey)
+	low := strings.ToLower(k)
+	if strings.HasPrefix(low, "basic ") || strings.HasPrefix(low, "bearer ") {
+		return k
+	}
+	// ITPortal expects the API key as the password in HTTP Basic auth.
+	return "Basic " + base64.StdEncoding.EncodeToString([]byte(":"+k))
 }
 
 // ListOptions holds common query parameters supported by list endpoints.
@@ -53,7 +100,8 @@ type ListOptions struct {
 	Deleted        *bool
 	ForeignID      string
 	Limit          int
-	Offset         int
+	Offset         int    // deprecated in v2.1; prefer Cursor
+	Cursor         string // v2.1 cursor pagination token
 	OrderBy        string
 	Extra          map[string]string
 }
@@ -114,6 +162,9 @@ func (o *ListOptions) toQuery() url.Values {
 	if o.Limit > 0 {
 		q.Set("limit", strconv.Itoa(o.Limit))
 	}
+	if o.Cursor != "" {
+		q.Set("cursor", o.Cursor)
+	}
 	if o.Offset > 0 {
 		q.Set("offset", strconv.Itoa(o.Offset))
 	}
@@ -126,8 +177,24 @@ func (o *ListOptions) toQuery() url.Values {
 	return q
 }
 
-// do executes an authenticated HTTP request against the ITPortal API.
-func (c *Client) do(ctx context.Context, method, path string, body interface{}, query url.Values) ([]byte, error) {
+// resolvePath rewrites the internal version prefix to the configured API version.
+func (c *Client) resolvePath(path string) string {
+	if strings.HasPrefix(path, internalVersionPrefix) {
+		return "/api/" + c.apiVersion + "/" + strings.TrimPrefix(path, internalVersionPrefix)
+	}
+	return path
+}
+
+// apiResponse is the low-level result of an HTTP call.
+type apiResponse struct {
+	Status int
+	Header http.Header
+	Body   []byte
+}
+
+// doMeta executes an authenticated request and returns the full response. It does
+// not enforce a 2xx status; callers decide how to interpret the result.
+func (c *Client) doMeta(ctx context.Context, method, path string, body interface{}, query url.Values) (*apiResponse, error) {
 	var bodyReader io.Reader
 	if body != nil {
 		data, err := json.Marshal(body)
@@ -137,14 +204,24 @@ func (c *Client) do(ctx context.Context, method, path string, body interface{}, 
 		bodyReader = bytes.NewReader(data)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bodyReader)
+	url := c.baseURL + c.resolvePath(path)
+	req, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("create request %s %s: %w", method, path, err)
 	}
 
-	req.Header.Set("Authorization", c.apiKey)
+	req.Header.Set("Authorization", c.authHeader)
+	req.Header.Set("Accept", "application/json")
 	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+		// RFC 7396 merge-patch content type is required for PATCH in v2.1.
+		if method == http.MethodPatch {
+			req.Header.Set("Content-Type", "application/merge-patch+json")
+		} else {
+			req.Header.Set("Content-Type", "application/json")
+		}
+	}
+	if c.encryptionKey != "" {
+		req.Header.Set("X-Encryption-Key", c.encryptionKey)
 	}
 	if len(query) > 0 {
 		req.URL.RawQuery = query.Encode()
@@ -160,70 +237,140 @@ func (c *Client) do(ctx context.Context, method, path string, body interface{}, 
 	if err != nil {
 		return nil, fmt.Errorf("read response from %s %s: %w", method, path, err)
 	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("ITPortal API %s %s → %d: %s", method, path, resp.StatusCode, string(respBody))
-	}
-
-	return respBody, nil
+	return &apiResponse{Status: resp.StatusCode, Header: resp.Header, Body: respBody}, nil
 }
 
-// listPage fetches a single page of entities.
-func listPage[T any](ctx context.Context, c *Client, path string, opts *ListOptions) ([]T, int, error) {
+// do executes a request and returns the body, enforcing a 2xx status code.
+func (c *Client) do(ctx context.Context, method, path string, body interface{}, query url.Values) ([]byte, error) {
+	resp, err := c.doMeta(ctx, method, path, body, query)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Status < 200 || resp.Status >= 300 {
+		return nil, fmt.Errorf("ITPortal API %s %s → %d: %s", method, path, resp.Status, string(resp.Body))
+	}
+	return resp.Body, nil
+}
+
+// createID POSTs a new entity and returns the id parsed from the Location header.
+// v2.1 responds 201 with a Location header and no body.
+func (c *Client) createID(ctx context.Context, path string, body interface{}) (int, error) {
+	resp, err := c.doMeta(ctx, http.MethodPost, path, body, nil)
+	if err != nil {
+		return 0, err
+	}
+	if resp.Status < 200 || resp.Status >= 300 {
+		return 0, fmt.Errorf("ITPortal API POST %s → %d: %s", path, resp.Status, string(resp.Body))
+	}
+	if id := parseLocationID(resp.Header.Get("Location")); id != 0 {
+		return id, nil
+	}
+	// Fallback: some deployments return the entity in the body.
+	var wrapper struct {
+		Data struct {
+			ID      int `json:"id"`
+			Results []struct {
+				ID int `json:"id"`
+			} `json:"results"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(resp.Body, &wrapper) == nil {
+		if wrapper.Data.ID != 0 {
+			return wrapper.Data.ID, nil
+		}
+		if len(wrapper.Data.Results) > 0 {
+			return wrapper.Data.Results[0].ID, nil
+		}
+	}
+	return 0, nil
+}
+
+// parseLocationID extracts the trailing numeric id from a Location header value.
+func parseLocationID(location string) int {
+	m := locationIDPattern.FindStringSubmatch(location)
+	if len(m) < 2 {
+		return 0
+	}
+	id, _ := strconv.Atoi(m[1])
+	return id
+}
+
+// pageMeta carries pagination metadata returned alongside a list page.
+type pageMeta struct {
+	Total      int
+	Count      int
+	NextCursor string
+}
+
+// listPage fetches a single page of entities and its pagination metadata.
+func listPage[T any](ctx context.Context, c *Client, path string, opts *ListOptions) ([]T, pageMeta, error) {
 	data, err := c.do(ctx, http.MethodGet, path, nil, opts.toQuery())
 	if err != nil {
-		return nil, 0, err
+		return nil, pageMeta{}, err
 	}
 	var wrapper struct {
 		Code int `json:"code"`
 		Data struct {
-			Results []T `json:"results"`
-			Total   int `json:"total"`
-			Count   int `json:"count"`
-			Offset  int `json:"offset"`
-			Limit   int `json:"limit"`
+			Results    []T    `json:"results"`
+			Total      int    `json:"total"`
+			Count      int    `json:"count"`
+			NextCursor string `json:"nextCursor"`
+			Offset     int    `json:"offset"`
+			Limit      int    `json:"limit"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(data, &wrapper); err != nil {
-		return nil, 0, fmt.Errorf("unmarshal list response from %s: %w", path, err)
+		return nil, pageMeta{}, fmt.Errorf("unmarshal list response from %s: %w", path, err)
 	}
-	return wrapper.Data.Results, wrapper.Data.Total, nil
+	meta := pageMeta{Total: wrapper.Data.Total, Count: wrapper.Data.Count, NextCursor: wrapper.Data.NextCursor}
+	return wrapper.Data.Results, meta, nil
 }
 
-// listAll fetches all pages up to maxItems using the configured page size.
+// listOne is the (results, total) form used by exported List* methods. With cursor
+// pagination Total may be unreported; callers should treat 0 as "unknown".
+func listOne[T any](ctx context.Context, c *Client, path string, opts *ListOptions) ([]T, int, error) {
+	items, meta, err := listPage[T](ctx, c, path, opts)
+	if err != nil {
+		return nil, 0, err
+	}
+	total := meta.Total
+	if total == 0 {
+		total = len(items)
+	}
+	return items, total, nil
+}
+
+// listAll fetches all pages up to maxItems, following the v2.1 nextCursor token.
 func listAll[T any](ctx context.Context, c *Client, path string, opts *ListOptions, maxItems int) ([]T, error) {
 	if opts == nil {
 		opts = &ListOptions{}
 	}
 	const pageSize = 100
 	var all []T
-	offset := 0
+	cursor := ""
 	for {
 		pagOpts := *opts
 		pagOpts.Limit = pageSize
-		pagOpts.Offset = offset
+		pagOpts.Cursor = cursor
 
-		items, total, err := listPage[T](ctx, c, path, &pagOpts)
+		items, meta, err := listPage[T](ctx, c, path, &pagOpts)
 		if err != nil {
 			return nil, err
 		}
-		if offset == 0 {
-			cap := total
-			if maxItems < cap {
-				cap = maxItems
-			}
-			all = make([]T, 0, cap)
-		}
 		all = append(all, items...)
-		offset += len(items)
-		if offset >= total || offset >= maxItems || len(items) == 0 {
+		if len(all) >= maxItems {
+			all = all[:maxItems]
 			break
 		}
+		if meta.NextCursor == "" || len(items) == 0 {
+			break
+		}
+		cursor = meta.NextCursor
 	}
 	return all, nil
 }
 
-// getOne fetches a single entity by fully-qualified path (including ID).
+// getOne fetches a single entity. v2.1 returns the record inside data.results[0].
 func getOne[T any](ctx context.Context, c *Client, path string) (*T, error) {
 	items, _, err := listPage[T](ctx, c, path, nil)
 	if err != nil {
@@ -235,26 +382,24 @@ func getOne[T any](ctx context.Context, c *Client, path string) (*T, error) {
 	return &items[0], nil
 }
 
-// createOne POSTs a new entity and returns the created record.
-func createOne[T any](ctx context.Context, c *Client, path string, body interface{}) (*T, error) {
-	data, err := c.do(ctx, http.MethodPost, path, body, nil)
+// createOne POSTs a new entity, then GETs it back so the full record (including the
+// read-only portal url) is returned. collectionPath is the list endpoint, e.g.
+// "/api/2.0/companies/"; the single-resource GET is collectionPath + id + "/".
+func createOne[T any](ctx context.Context, c *Client, collectionPath string, body interface{}) (*T, error) {
+	id, err := c.createID(ctx, collectionPath, body)
 	if err != nil {
 		return nil, err
 	}
-	var wrapper struct {
-		Code int `json:"code"`
-		Data T   `json:"data"`
+	if id == 0 {
+		return nil, fmt.Errorf("create at %s succeeded but no id was returned", collectionPath)
 	}
-	if err := json.Unmarshal(data, &wrapper); err != nil {
-		return nil, fmt.Errorf("unmarshal create response from %s: %w", path, err)
-	}
-	return &wrapper.Data, nil
+	return getOne[T](ctx, c, collectionPath+strconv.Itoa(id)+"/")
 }
 
 // ---- Companies ----
 
 func (c *Client) ListCompanies(ctx context.Context, opts *ListOptions) ([]Company, int, error) {
-	return listPage[Company](ctx, c, "/api/2.0/companies/", opts)
+	return listOne[Company](ctx, c, "/api/2.0/companies/", opts)
 }
 
 func (c *Client) ListAllCompanies(ctx context.Context, opts *ListOptions, max int) ([]Company, error) {
@@ -282,7 +427,7 @@ func (c *Client) DeleteCompany(ctx context.Context, id string) error {
 // ---- Sites ----
 
 func (c *Client) ListSites(ctx context.Context, opts *ListOptions) ([]Site, int, error) {
-	return listPage[Site](ctx, c, "/api/2.0/sites/", opts)
+	return listOne[Site](ctx, c, "/api/2.0/sites/", opts)
 }
 
 func (c *Client) ListAllSites(ctx context.Context, opts *ListOptions, max int) ([]Site, error) {
@@ -310,7 +455,7 @@ func (c *Client) DeleteSite(ctx context.Context, id string) error {
 // ---- Devices ----
 
 func (c *Client) ListDevices(ctx context.Context, opts *ListOptions) ([]Device, int, error) {
-	return listPage[Device](ctx, c, "/api/2.0/devices/", opts)
+	return listOne[Device](ctx, c, "/api/2.0/devices/", opts)
 }
 
 func (c *Client) ListAllDevices(ctx context.Context, opts *ListOptions, max int) ([]Device, error) {
@@ -340,7 +485,12 @@ func (c *Client) GetDeviceIPs(ctx context.Context, deviceID string) ([]DeviceIP,
 }
 
 func (c *Client) AddDeviceIP(ctx context.Context, deviceID string, ip *DeviceIP) (*DeviceIP, error) {
-	return createOne[DeviceIP](ctx, c, "/api/2.0/devices/"+deviceID+"/ips/", ip)
+	id, err := c.createID(ctx, "/api/2.0/devices/"+deviceID+"/ips/", ip)
+	if err != nil {
+		return nil, err
+	}
+	ip.ID = id
+	return ip, nil
 }
 
 func (c *Client) GetDeviceNotes(ctx context.Context, deviceID string) ([]DeviceNote, error) {
@@ -348,7 +498,12 @@ func (c *Client) GetDeviceNotes(ctx context.Context, deviceID string) ([]DeviceN
 }
 
 func (c *Client) AddDeviceNote(ctx context.Context, deviceID string, note *DeviceNote) (*DeviceNote, error) {
-	return createOne[DeviceNote](ctx, c, "/api/2.0/devices/"+deviceID+"/notes/", note)
+	id, err := c.createID(ctx, "/api/2.0/devices/"+deviceID+"/notes/", note)
+	if err != nil {
+		return nil, err
+	}
+	note.ID = id
+	return note, nil
 }
 
 func (c *Client) GetDeviceManagementURLs(ctx context.Context, deviceID string) ([]DeviceMUrl, error) {
@@ -356,7 +511,17 @@ func (c *Client) GetDeviceManagementURLs(ctx context.Context, deviceID string) (
 }
 
 func (c *Client) AddDeviceManagementURL(ctx context.Context, deviceID string, murl *DeviceMUrl) (*DeviceMUrl, error) {
-	return createOne[DeviceMUrl](ctx, c, "/api/2.0/devices/"+deviceID+"/managementUrls/", murl)
+	id, err := c.createID(ctx, "/api/2.0/devices/"+deviceID+"/managementUrls/", murl)
+	if err != nil {
+		return nil, err
+	}
+	murl.ID = id
+	return murl, nil
+}
+
+func (c *Client) DeleteDeviceManagementURL(ctx context.Context, deviceID, murlID string) error {
+	_, err := c.do(ctx, http.MethodDelete, "/api/2.0/devices/"+deviceID+"/managementUrls/"+murlID+"/", nil, nil)
+	return err
 }
 
 func (c *Client) GetDeviceCredentials(ctx context.Context, deviceID string) ([]Credential, error) {
@@ -366,7 +531,7 @@ func (c *Client) GetDeviceCredentials(ctx context.Context, deviceID string) ([]C
 // ---- Knowledge Base ----
 
 func (c *Client) ListKBs(ctx context.Context, opts *ListOptions) ([]KB, int, error) {
-	return listPage[KB](ctx, c, "/api/2.0/kbs/", opts)
+	return listOne[KB](ctx, c, "/api/2.0/kbs/", opts)
 }
 
 func (c *Client) ListAllKBs(ctx context.Context, opts *ListOptions, max int) ([]KB, error) {
@@ -398,7 +563,7 @@ func (c *Client) ListKBCategories(ctx context.Context) ([]KBCategory, error) {
 // ---- Contacts ----
 
 func (c *Client) ListContacts(ctx context.Context, opts *ListOptions) ([]Contact, int, error) {
-	return listPage[Contact](ctx, c, "/api/2.0/contacts/", opts)
+	return listOne[Contact](ctx, c, "/api/2.0/contacts/", opts)
 }
 
 func (c *Client) ListAllContacts(ctx context.Context, opts *ListOptions, max int) ([]Contact, error) {
@@ -421,7 +586,7 @@ func (c *Client) UpdateContact(ctx context.Context, id string, fields map[string
 // ---- Accounts ----
 
 func (c *Client) ListAccounts(ctx context.Context, opts *ListOptions) ([]Account, int, error) {
-	return listPage[Account](ctx, c, "/api/2.0/accounts/", opts)
+	return listOne[Account](ctx, c, "/api/2.0/accounts/", opts)
 }
 
 func (c *Client) ListAllAccounts(ctx context.Context, opts *ListOptions, max int) ([]Account, error) {
@@ -444,7 +609,7 @@ func (c *Client) UpdateAccount(ctx context.Context, id string, fields map[string
 // ---- Agreements ----
 
 func (c *Client) ListAgreements(ctx context.Context, opts *ListOptions) ([]Agreement, int, error) {
-	return listPage[Agreement](ctx, c, "/api/2.0/agreements/", opts)
+	return listOne[Agreement](ctx, c, "/api/2.0/agreements/", opts)
 }
 
 func (c *Client) ListAllAgreements(ctx context.Context, opts *ListOptions, max int) ([]Agreement, error) {
@@ -467,7 +632,7 @@ func (c *Client) UpdateAgreement(ctx context.Context, id string, fields map[stri
 // ---- Documents ----
 
 func (c *Client) ListDocuments(ctx context.Context, opts *ListOptions) ([]Document, int, error) {
-	return listPage[Document](ctx, c, "/api/2.0/documents/", opts)
+	return listOne[Document](ctx, c, "/api/2.0/documents/", opts)
 }
 
 func (c *Client) ListAllDocuments(ctx context.Context, opts *ListOptions, max int) ([]Document, error) {
@@ -490,7 +655,7 @@ func (c *Client) UpdateDocument(ctx context.Context, id string, fields map[strin
 // ---- IP Networks ----
 
 func (c *Client) ListIPNetworks(ctx context.Context, opts *ListOptions) ([]IPNetwork, int, error) {
-	return listPage[IPNetwork](ctx, c, "/api/2.0/ipnetworks/", opts)
+	return listOne[IPNetwork](ctx, c, "/api/2.0/ipnetworks/", opts)
 }
 
 func (c *Client) ListAllIPNetworks(ctx context.Context, opts *ListOptions, max int) ([]IPNetwork, error) {
@@ -518,7 +683,7 @@ func (c *Client) DeleteIPNetwork(ctx context.Context, id string) error {
 // ---- Facilities ----
 
 func (c *Client) ListFacilities(ctx context.Context, opts *ListOptions) ([]Facility, int, error) {
-	return listPage[Facility](ctx, c, "/api/2.0/facilities/", opts)
+	return listOne[Facility](ctx, c, "/api/2.0/facilities/", opts)
 }
 
 func (c *Client) ListAllFacilities(ctx context.Context, opts *ListOptions, max int) ([]Facility, error) {
@@ -541,7 +706,7 @@ func (c *Client) UpdateFacility(ctx context.Context, id string, fields map[strin
 // ---- Cabinets ----
 
 func (c *Client) ListCabinets(ctx context.Context, opts *ListOptions) ([]Cabinet, int, error) {
-	return listPage[Cabinet](ctx, c, "/api/2.0/cabinets/", opts)
+	return listOne[Cabinet](ctx, c, "/api/2.0/cabinets/", opts)
 }
 
 func (c *Client) ListAllCabinets(ctx context.Context, opts *ListOptions, max int) ([]Cabinet, error) {
@@ -564,7 +729,7 @@ func (c *Client) UpdateCabinet(ctx context.Context, id string, fields map[string
 // ---- Configurations ----
 
 func (c *Client) ListConfigurations(ctx context.Context, opts *ListOptions) ([]Configuration, int, error) {
-	return listPage[Configuration](ctx, c, "/api/2.0/configurations/", opts)
+	return listOne[Configuration](ctx, c, "/api/2.0/configurations/", opts)
 }
 
 func (c *Client) ListAllConfigurations(ctx context.Context, opts *ListOptions, max int) ([]Configuration, error) {
@@ -587,7 +752,7 @@ func (c *Client) UpdateConfiguration(ctx context.Context, id string, fields map[
 // ---- Form Instances ----
 
 func (c *Client) ListFormInstances(ctx context.Context, opts *ListOptions) ([]FormInstance, int, error) {
-	return listPage[FormInstance](ctx, c, "/api/2.0/forminstances/", opts)
+	return listOne[FormInstance](ctx, c, "/api/2.0/forminstances/", opts)
 }
 
 func (c *Client) GetFormInstance(ctx context.Context, id string) (*FormInstance, error) {
@@ -597,12 +762,12 @@ func (c *Client) GetFormInstance(ctx context.Context, id string) (*FormInstance,
 // ---- Templates ----
 
 func (c *Client) ListTemplates(ctx context.Context, opts *ListOptions) ([]Template, int, error) {
-	return listPage[Template](ctx, c, "/api/2.0/templates/", opts)
+	return listOne[Template](ctx, c, "/api/2.0/templates/", opts)
 }
 
 func (c *Client) GetObjectTemplates(ctx context.Context, objectType, objectID string) ([]Template, int, error) {
 	path := fmt.Sprintf("/api/2.0/templates/%s/%s/", objectType, objectID)
-	return listPage[Template](ctx, c, path, nil)
+	return listOne[Template](ctx, c, path, nil)
 }
 
 func (c *Client) UpdateTemplateField(ctx context.Context, objectType, objectID, templateID, fieldID string, value interface{}) error {
@@ -614,11 +779,22 @@ func (c *Client) UpdateTemplateField(ctx context.Context, objectType, objectID, 
 // ---- Additional Credentials ----
 
 func (c *Client) ListAdditionalCredentials(ctx context.Context, opts *ListOptions) ([]AdditionalCredential, int, error) {
-	return listPage[AdditionalCredential](ctx, c, "/api/2.0/additionalCredentials/", opts)
+	return listOne[AdditionalCredential](ctx, c, "/api/2.0/additionalCredentials/", opts)
+}
+
+func (c *Client) GetAdditionalCredential(ctx context.Context, id string) (*AdditionalCredential, error) {
+	return getOne[AdditionalCredential](ctx, c, "/api/2.0/additionalCredentials/"+id+"/")
 }
 
 func (c *Client) CreateAdditionalCredential(ctx context.Context, cred *AdditionalCredential) (*AdditionalCredential, error) {
-	return createOne[AdditionalCredential](ctx, c, "/api/2.0/additionalCredentials/", cred)
+	// Don't GET back: the single-resource read requires the encryption key and would
+	// return the secret. Return the input echoed with its new id instead.
+	id, err := c.createID(ctx, "/api/2.0/additionalCredentials/", cred)
+	if err != nil {
+		return nil, err
+	}
+	cred.ID = id
+	return cred, nil
 }
 
 func (c *Client) UpdateAdditionalCredential(ctx context.Context, id string, fields map[string]interface{}) error {
@@ -626,16 +802,31 @@ func (c *Client) UpdateAdditionalCredential(ctx context.Context, id string, fiel
 	return err
 }
 
+func (c *Client) DeleteAdditionalCredential(ctx context.Context, id string) error {
+	_, err := c.do(ctx, http.MethodDelete, "/api/2.0/additionalCredentials/"+id+"/", nil, nil)
+	return err
+}
+
 // ---- Interactions ----
 
 func (c *Client) ListInteractions(ctx context.Context, objectType, objectID string) ([]Interaction, int, error) {
 	path := fmt.Sprintf("/api/2.0/interactions/%s/%s/", objectType, objectID)
-	return listPage[Interaction](ctx, c, path, nil)
+	return listOne[Interaction](ctx, c, path, nil)
 }
 
 func (c *Client) CreateInteraction(ctx context.Context, objectType, objectID string, interaction *Interaction) (*Interaction, error) {
 	path := fmt.Sprintf("/api/2.0/interactions/%s/%s/", objectType, objectID)
-	return createOne[Interaction](ctx, c, path, interaction)
+	id, err := c.createID(ctx, path, interaction)
+	if err != nil {
+		return nil, err
+	}
+	interaction.ID = id
+	return interaction, nil
+}
+
+func (c *Client) DeleteInteraction(ctx context.Context, id string) error {
+	_, err := c.do(ctx, http.MethodDelete, "/api/2.0/interactions/"+id+"/", nil, nil)
+	return err
 }
 
 // ---- System ----
@@ -687,39 +878,6 @@ func (c *Client) ListFacilityTypes(ctx context.Context) ([]TypeItem, error) {
 // UploadFile uploads raw file bytes to the given ITPortal endpoint via multipart/form-data.
 // uploadPath must be a path like /api/2.0/devices/{id}/configurationFiles/
 func (c *Client) UploadFile(ctx context.Context, uploadPath, fileName, contentType string, fileData []byte) error {
-	var buf bytes.Buffer
-	w := multipart.NewWriter(&buf)
-
-	part, err := w.CreateFormFile("file", fileName)
-	if err != nil {
-		return fmt.Errorf("create multipart file field: %w", err)
-	}
-	if _, err := part.Write(fileData); err != nil {
-		return fmt.Errorf("write file data: %w", err)
-	}
-	if err := w.Close(); err != nil {
-		return fmt.Errorf("close multipart writer: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+uploadPath, &buf)
-	if err != nil {
-		return fmt.Errorf("create upload request: %w", err)
-	}
-	req.Header.Set("Authorization", c.apiKey)
-	req.Header.Set("Content-Type", w.FormDataContentType())
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("execute upload to %s: %w", uploadPath, err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("read upload response: %w", err)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("upload to %s failed with status %d: %s", uploadPath, resp.StatusCode, string(body))
-	}
-	return nil
+	_, err := c.uploadMultipart(ctx, uploadPath, fileName, contentType, fileData, nil)
+	return err
 }

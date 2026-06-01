@@ -38,6 +38,7 @@ type Snapshot struct {
 type Cache struct {
 	client          *itportal.Client
 	limitPerEntity  int
+	deviceLimit     int
 	refreshInterval time.Duration
 	logger          *slog.Logger
 	current         atomic.Pointer[Snapshot]
@@ -45,10 +46,16 @@ type Cache struct {
 
 // New creates a Cache and performs an initial synchronous snapshot build.
 // Returns an error if the initial build fails (e.g. ITPortal is unreachable).
-func New(ctx context.Context, client *itportal.Client, limitPerEntity int, refreshInterval time.Duration, logger *slog.Logger) (*Cache, error) {
+// deviceLimit caps devices specifically (devices are usually the largest entity
+// set); pass <= 0 to fall back to limitPerEntity.
+func New(ctx context.Context, client *itportal.Client, limitPerEntity, deviceLimit int, refreshInterval time.Duration, logger *slog.Logger) (*Cache, error) {
+	if deviceLimit <= 0 {
+		deviceLimit = limitPerEntity
+	}
 	c := &Cache{
 		client:          client,
 		limitPerEntity:  limitPerEntity,
+		deviceLimit:     deviceLimit,
 		refreshInterval: refreshInterval,
 		logger:          logger,
 	}
@@ -183,7 +190,7 @@ func (c *Cache) build(ctx context.Context) (*Snapshot, error) {
 	})
 	eg.Go(func() error {
 		var err error
-		devices, err = c.client.ListAllDevices(egCtx, nil, lim)
+		devices, err = c.client.ListAllDevices(egCtx, nil, c.deviceLimit)
 		if err != nil {
 			return fmt.Errorf("list devices: %w", err)
 		}
@@ -527,8 +534,8 @@ func buildMarkdown(s *Snapshot) string {
 			if net.Site != nil {
 				fmt.Fprintf(&b, "- **Site**: %s\n", net.Site.Name)
 			}
-			if net.Network != "" || net.SubnetMask != "" {
-				fmt.Fprintf(&b, "- **Network**: %s / %s\n", net.Network, net.SubnetMask)
+			if net.NetworkAddress != "" || net.SubnetMask != "" {
+				fmt.Fprintf(&b, "- **Network**: %s / %s\n", net.NetworkAddress, net.SubnetMask)
 			}
 			if net.DefaultGateway != nil && net.DefaultGateway.IP != "" {
 				fmt.Fprintf(&b, "- **Default Gateway**: %s\n", net.DefaultGateway.IP)

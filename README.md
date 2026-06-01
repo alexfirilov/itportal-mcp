@@ -1,6 +1,6 @@
 # ITPortal MCP Server
 
-[Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that exposes your ITPortal documentation to AI agents (Claude, etc.) over HTTP.
+[Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that exposes your ITPortal documentation to AI agents (Claude, etc.) over HTTP. Targets the **ITPortal REST API v2.1**.
 
 ---
 
@@ -9,11 +9,14 @@
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `ITPORTAL_BASE_URL` | Yes | — | Base URL of your ITPortal instance, e.g. `https://itportal.example.com` |
-| `ITPORTAL_API_KEY` | Yes | — | ITPortal API token (Admin Settings → Generate API Key) |
+| `ITPORTAL_API_KEY` | Yes | — | ITPortal API token (Admin Settings → Generate API Key). Sent as HTTP Basic auth (key as password). |
+| `ITPORTAL_API_VERSION` | No | `2.1` | ITPortal REST API version. Set `2.0` only for legacy instances. |
+| `ITPORTAL_ENCRYPTION_KEY` | No | — | Custom credential-encryption key. Required only if your org uses custom encryption, to read/write credential endpoints. |
 | `MCP_API_KEY` | Yes | — | Secret Bearer token clients must send to access this server |
 | `MCP_LISTEN_ADDR` | No | `:8080` | TCP address the HTTP server binds to |
 | `SNAPSHOT_REFRESH_INTERVAL` | No | `30m` | How often the documentation snapshot is rebuilt (Go duration, e.g. `15m`, `1h`) |
 | `SNAPSHOT_LIMIT_PER_ENTITY` | No | `1000` | Max records fetched per entity type when building the snapshot |
+| `SNAPSHOT_DEVICE_LIMIT` | No | = `SNAPSHOT_LIMIT_PER_ENTITY` | Separate cap for devices (usually the largest entity set) |
 
 Create a `.env` file in the project root — it is loaded automatically at startup, or just copy `.env.example` to `.env` and fill in real values.
 
@@ -64,6 +67,52 @@ The server exposes a single Streamable HTTP endpoint at `/`. Configure your MCP 
 
 ---
 
+## Tools & resources
+
+The server exposes one cached resource and a set of tools.
+
+**Resource** — `itportal://snapshot`: the full documented environment as Markdown.
+Read it once per conversation to load everything into context (prompt-cached). JSON
+sub-resources are also available: `itportal://companies`, `itportal://sites`,
+`itportal://devices`, `itportal://kbs`, `itportal://contacts`.
+
+**Read tools**
+- `search_docs` — keyword search across the cached snapshot.
+- `list_entities` — live, filtered, cursor-paginated lists. Types: company, site, device,
+  kb, contact, account, agreement, document, facility, cabinet, configuration, ipnetwork,
+  address, form, additional_credential, user, country, security_group, main_contact,
+  kb_category, device_type, template.
+- `get_entity_details` — one record plus sub-resources (device IPs/notes/management URLs).
+- `get_credentials` — stored secrets for an account/device/configuration (on demand).
+- `get_logs` — audit logs (userAccess, adminAccess, loginLogout, passwordAccess, passwordChanges).
+
+**Write tools**
+- `create_device`, `create_kb_article`, `create_entity` (generic), `add_device_ip`,
+  `add_device_note`, `add_interaction`, `upload_file`.
+- `update_entity`, `delete_entity`.
+- `manage_relationship` — link two objects (symmetric invLinks).
+- `manage_folder`, `manage_folder_file` — per-object document trees + file upload/download.
+- `manage_credential` — additional credentials attached to any object.
+- `manage_type` — custom type lists (per kind).
+- `manage_kb_category` — KB categories and subcategories.
+- `refresh_snapshot` — force a snapshot rebuild.
+
+> `docs/api_spec.json` is the legacy v2.0 reference. `docs/test-portal-api.ps1` is the
+> authoritative exercise of the live v2.1 surface. `docs/IMPROVEMENT_PLAN.md` records the
+> v2.1 upgrade design.
+
+---
+
+## Development
+
+```bash
+go build ./...     # compile
+go vet ./...       # static checks
+go test ./...      # unit tests (httptest-mocked API; no live ITPortal needed)
+```
+
+---
+
 ## Security
 
 ### Transport authentication
@@ -79,7 +128,10 @@ The documentation snapshot served to AI clients is scrubbed of credentials. The 
 | Accounts | `password`, `2faCode` |
 | Additional credentials | `password` |
 
-These fields remain accessible only via `get_entity_details` called explicitly by an authorised agent — they are never bulk-exported into the context cache.
+Secrets are never bulk-exported into the context cache. They are returned only when an
+authorised agent explicitly calls `get_credentials` (account/device/configuration) or
+`manage_credential` (additional credentials) — and, for custom-encryption orgs, only when
+`ITPORTAL_ENCRYPTION_KEY` is configured. Treat those two tools as privileged.
 
 ### Network exposure
 By default the server listens on all interfaces (`:8080`). For production, either:

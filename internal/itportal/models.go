@@ -70,16 +70,24 @@ type IPRef struct {
 	IP string `json:"ip,omitempty"`
 }
 
+// PortalObjectRef points at any portal object by type + id. Used by additional
+// credentials and other endpoints that attach to an arbitrary entity.
+type PortalObjectRef struct {
+	ItemType string `json:"itemType,omitempty"` // Device, Account, Configuration, …
+	ID       int    `json:"id,omitempty"`
+}
+
 // ---- Address ----
 
 type Address struct {
-	ID       int    `json:"id,omitempty"`
-	Address1 string `json:"address1,omitempty"`
-	Address2 string `json:"address2,omitempty"`
-	City     string `json:"city,omitempty"`
-	State    string `json:"state,omitempty"`
-	Zip      string `json:"zip,omitempty"`
-	Country  string `json:"country,omitempty"`
+	ID       int               `json:"id,omitempty"`
+	Company  *CompanyReference `json:"company,omitempty"` // required when creating via /addresses/
+	Address1 string            `json:"address1,omitempty"`
+	Address2 string            `json:"address2,omitempty"`
+	City     string            `json:"city,omitempty"`
+	State    string            `json:"state,omitempty"`
+	Zip      string            `json:"zip,omitempty"`
+	Country  string            `json:"country,omitempty"`
 }
 
 // ---- Company ----
@@ -95,6 +103,7 @@ type Company struct {
 	Abbreviation          string            `json:"abbreviation,omitempty"`
 	WebSite               string            `json:"webSite,omitempty"`
 	Status                string            `json:"status,omitempty"`
+	Contact               *Contact          `json:"contact,omitempty"` // main contact (inline create supported)
 	Notes                 string            `json:"notes,omitempty"`
 	NotesHtml             bool              `json:"notesHtml,omitempty"`
 	RemoteAccessNotes     string            `json:"remoteAccessNotes,omitempty"`
@@ -109,67 +118,68 @@ type Company struct {
 // ---- Site ----
 
 type Site struct {
-	ID          int               `json:"id,omitempty"`
-	Name        string            `json:"name,omitempty"`
-	Company     *CompanyReference `json:"company,omitempty"`
-	Description string            `json:"description,omitempty"`
-	Contact     *ContactReference `json:"contact,omitempty"`
+	ID          int                `json:"id,omitempty"`
+	Name        string             `json:"name,omitempty"`
+	Company     *CompanyReference  `json:"company,omitempty"`
+	Description string             `json:"description,omitempty"`
+	Contact     *ContactReference  `json:"contact,omitempty"`
 	Diagram     *DocumentReference `json:"diagram,omitempty"`
-	NumberOfPCs int               `json:"numberOfPCs,omitempty"`
-	ReviewBy    *UserReference    `json:"reviewBy,omitempty"`
-	DueDate     string            `json:"dueDate,omitempty"`
-	Address     *Address          `json:"address,omitempty"`
-	ForeignID   int               `json:"foreignId,omitempty"`
-	ForeignType string            `json:"foreignType,omitempty"`
-	InOut       *bool             `json:"inOut,omitempty"`
-	InOutNotes  string            `json:"inOutNotes,omitempty"`
-	Modified    string            `json:"modified,omitempty"`
-	URL         string            `json:"url,omitempty"`
+	NumberOfPCs int                `json:"numberOfPCs,omitempty"`
+	ReviewBy    *UserReference     `json:"reviewBy,omitempty"`
+	DueDate     string             `json:"dueDate,omitempty"`
+	Address     *Address           `json:"address,omitempty"`
+	ForeignID   int                `json:"foreignId,omitempty"`
+	ForeignType string             `json:"foreignType,omitempty"`
+	InOut       *bool              `json:"inOut,omitempty"`
+	InOutNotes  string             `json:"inOutNotes,omitempty"`
+	Modified    string             `json:"modified,omitempty"`
+	URL         string             `json:"url,omitempty"`
 }
 
 // ---- Device ----
 
 type Device struct {
-	ID              int               `json:"id,omitempty"`
-	Name            string            `json:"name,omitempty"`
-	Company         *CompanyReference `json:"company,omitempty"`
-	Site            *SiteReference    `json:"site,omitempty"`
-	Cabinet         *CabinetReference `json:"cabinet,omitempty"`
+	ID              int                `json:"id,omitempty"`
+	Name            string             `json:"name,omitempty"`
+	HostName        string             `json:"hostName,omitempty"`
+	Company         *CompanyReference  `json:"company,omitempty"`
+	Site            *SiteReference     `json:"site,omitempty"`
+	Cabinet         *CabinetReference  `json:"cabinet,omitempty"`
 	Facility        *FacilityReference `json:"facility,omitempty"`
-	Type            *TypeItem         `json:"type,omitempty"`
-	Description     string            `json:"description,omitempty"`
-	Location        string            `json:"location,omitempty"`
-	Domain          string            `json:"domain,omitempty"`
-	InstallDate     string            `json:"installDate,omitempty"`
-	WarrantyExpires string            `json:"warrantyExpires,omitempty"`
-	PurchaseDate    string            `json:"purchaseDate,omitempty"`
-	RetireDate      string            `json:"retireDate,omitempty"`
-	LeaseEndDate    string            `json:"leaseEndDate,omitempty"`
-	Manufacturer    string            `json:"manufacturer,omitempty"`
-	Model           string            `json:"model,omitempty"`
-	IMEI            string            `json:"imei,omitempty"`
-	Serial          string            `json:"serial,omitempty"`
-	Tag             string            `json:"tag,omitempty"`
-	NumberCPU       int               `json:"numberCpu,omitempty"`
-	NumberCores     int               `json:"numberCores,omitempty"`
-	PurchasePrice   float64           `json:"purchasePrice,omitempty"`
-	ReviewBy        *UserReference    `json:"reviewBy,omitempty"`
-	DueDate         string            `json:"dueDate,omitempty"`
-	ForeignID       int               `json:"foreignId,omitempty"`
-	ForeignType     string            `json:"foreignType,omitempty"`
-	InOut           *bool             `json:"inOut,omitempty"`
-	InOutNotes      string            `json:"inOutNotes,omitempty"`
-	Modified        string            `json:"modified,omitempty"`
-	URL             string            `json:"url,omitempty"`
+	Type            *TypeItem          `json:"type,omitempty"`
+	Description     string             `json:"description,omitempty"`
+	Location        string             `json:"location,omitempty"`
+	Domain          string             `json:"domain,omitempty"`
+	InstallDate     string             `json:"installDate,omitempty"`
+	WarrantyExpires string             `json:"warrantyExpires,omitempty"`
+	PurchaseDate    string             `json:"purchaseDate,omitempty"`
+	RetireDate      string             `json:"retireDate,omitempty"`
+	LeaseEndDate    string             `json:"leaseEndDate,omitempty"`
+	Manufacturer    string             `json:"manufacturer,omitempty"`
+	Model           string             `json:"model,omitempty"`
+	IMEI            string             `json:"imei,omitempty"`
+	Serial          string             `json:"serial,omitempty"`
+	Tag             string             `json:"tag,omitempty"`
+	NumberCPU       int                `json:"numberCpu,omitempty"`
+	NumberCores     int                `json:"numberCores,omitempty"`
+	PurchasePrice   float64            `json:"purchasePrice,omitempty"`
+	ReviewBy        *UserReference     `json:"reviewBy,omitempty"`
+	DueDate         string             `json:"dueDate,omitempty"`
+	ForeignID       int                `json:"foreignId,omitempty"`
+	ForeignType     string             `json:"foreignType,omitempty"`
+	InOut           *bool              `json:"inOut,omitempty"`
+	InOutNotes      string             `json:"inOutNotes,omitempty"`
+	Modified        string             `json:"modified,omitempty"`
+	URL             string             `json:"url,omitempty"`
 }
 
 // DeviceIP represents an IP address assigned to a device.
 type DeviceIP struct {
-	ID          int                 `json:"id,omitempty"`
-	IP          string              `json:"ip,omitempty"`
-	MAC         string              `json:"mac,omitempty"`
-	Description string              `json:"description,omitempty"`
-	IPNetwork   *IPNetworkReference `json:"ipNetwork,omitempty"`
+	ID          int                  `json:"id,omitempty"`
+	IP          string               `json:"ip,omitempty"`
+	MAC         string               `json:"mac,omitempty"`
+	Description string               `json:"description,omitempty"`
+	IPNetwork   *IPNetworkReference  `json:"ipNetwork,omitempty"`
 	SwitchPort  *SwitchPortReference `json:"switchPort,omitempty"`
 }
 
@@ -184,10 +194,11 @@ type DeviceNote struct {
 
 // DeviceMUrl represents a management URL for a device.
 type DeviceMUrl struct {
-	ID    int    `json:"id,omitempty"`
-	Title string `json:"title,omitempty"`
-	URL   string `json:"url,omitempty"`
-	Notes string `json:"notes,omitempty"`
+	ID        int    `json:"id,omitempty"`
+	Title     string `json:"title,omitempty"`
+	URL       string `json:"url,omitempty"`
+	Preferred *bool  `json:"preferred,omitempty"`
+	Notes     string `json:"notes,omitempty"`
 }
 
 // Credential represents a username/password pair associated with an account or device.
@@ -200,20 +211,28 @@ type Credential struct {
 	TwoFACode   string `json:"2faCode,omitempty"`
 }
 
-// AdditionalCredential is a portal-level credential record (not bound to a device/account).
+// AdditionalCredential is a credential record attached to any portal object.
 type AdditionalCredential struct {
-	ID          int    `json:"id,omitempty"`
-	URL         string `json:"url,omitempty"`
-	Username    string `json:"username,omitempty"`
-	Password    string `json:"password,omitempty"`
-	Description string `json:"description,omitempty"`
+	ID           int              `json:"id,omitempty"`
+	URL          string           `json:"url,omitempty"`
+	Type         string           `json:"type,omitempty"`
+	Username     string           `json:"username,omitempty"`
+	Password     string           `json:"password,omitempty"`
+	Description  string           `json:"description,omitempty"`
+	PortalObject *PortalObjectRef `json:"portalObject,omitempty"`
 }
 
 // ---- Knowledge Base ----
 
-type KBCategory struct {
+type KBSubCategory struct {
 	ID   int    `json:"id,omitempty"`
 	Name string `json:"name,omitempty"`
+}
+
+type KBCategory struct {
+	ID            int             `json:"id,omitempty"`
+	Name          string          `json:"name,omitempty"`
+	SubCategories []KBSubCategory `json:"subCategories,omitempty"`
 }
 
 type KB struct {
@@ -225,6 +244,7 @@ type KB struct {
 	Public      bool              `json:"public,omitempty"`
 	Expires     string            `json:"expires,omitempty"`
 	Category    *KBCategory       `json:"category,omitempty"`
+	SubCategory *TypeItem         `json:"subCategory,omitempty"`
 	ReviewBy    *UserReference    `json:"reviewBy,omitempty"`
 	DueDate     string            `json:"dueDate,omitempty"`
 	InOut       *bool             `json:"inOut,omitempty"`
@@ -296,26 +316,26 @@ type AgreementType struct {
 }
 
 type Agreement struct {
-	ID          int               `json:"id,omitempty"`
-	Company     *CompanyReference `json:"company,omitempty"`
-	Type        *AgreementType    `json:"type,omitempty"`
-	Description string            `json:"description,omitempty"`
-	Vendor      string            `json:"vendor,omitempty"`
-	Site        *SiteReference    `json:"site,omitempty"`
-	Contact     *ContactReference `json:"contact,omitempty"`
-	Count       int               `json:"count,omitempty"`
-	Cost        float64           `json:"cost,omitempty"`
-	DateIssued  string            `json:"dateIssued,omitempty"`
-	DateExpires string            `json:"dateExpires,omitempty"`
-	SerialNumber string           `json:"serialNumber,omitempty"`
-	InstallDate string            `json:"installDate,omitempty"`
-	ReviewBy    *UserReference    `json:"reviewBy,omitempty"`
-	DueDate     string            `json:"dueDate,omitempty"`
-	ForeignID   int               `json:"foreignId,omitempty"`
-	ForeignType string            `json:"foreignType,omitempty"`
-	Notes       string            `json:"notes,omitempty"`
-	Modified    string            `json:"modified,omitempty"`
-	URL         string            `json:"url,omitempty"`
+	ID           int               `json:"id,omitempty"`
+	Company      *CompanyReference `json:"company,omitempty"`
+	Type         *AgreementType    `json:"type,omitempty"`
+	Description  string            `json:"description,omitempty"`
+	Vendor       string            `json:"vendor,omitempty"`
+	Site         *SiteReference    `json:"site,omitempty"`
+	Contact      *ContactReference `json:"contact,omitempty"`
+	Count        int               `json:"count,omitempty"`
+	Cost         float64           `json:"cost,omitempty"`
+	DateIssued   string            `json:"dateIssued,omitempty"`
+	DateExpires  string            `json:"dateExpires,omitempty"`
+	SerialNumber string            `json:"serialNumber,omitempty"`
+	InstallDate  string            `json:"installDate,omitempty"`
+	ReviewBy     *UserReference    `json:"reviewBy,omitempty"`
+	DueDate      string            `json:"dueDate,omitempty"`
+	ForeignID    int               `json:"foreignId,omitempty"`
+	ForeignType  string            `json:"foreignType,omitempty"`
+	Notes        string            `json:"notes,omitempty"`
+	Modified     string            `json:"modified,omitempty"`
+	URL          string            `json:"url,omitempty"`
 }
 
 // ---- Document ----
@@ -348,7 +368,7 @@ type IPNetwork struct {
 	Company        *CompanyReference `json:"company,omitempty"`
 	Description    string            `json:"description,omitempty"`
 	Site           *SiteReference    `json:"site,omitempty"`
-	Network        string            `json:"network,omitempty"`
+	NetworkAddress string            `json:"networkAddress,omitempty"`
 	SubnetMask     string            `json:"subnetMask,omitempty"`
 	DefaultGateway *IPRef            `json:"defaultGateway,omitempty"`
 	DNSServer1     *IPRef            `json:"dnsServer1,omitempty"`
@@ -369,20 +389,20 @@ type FacilityType struct {
 }
 
 type Facility struct {
-	ID            int               `json:"id,omitempty"`
-	Name          string            `json:"name,omitempty"`
-	Company       *CompanyReference `json:"company,omitempty"`
-	Type          *FacilityType     `json:"type,omitempty"`
-	Site          *SiteReference    `json:"site,omitempty"`
-	Description   string            `json:"description,omitempty"`
-	NumberOfUsers int               `json:"numberOfUsers,omitempty"`
+	ID            int                `json:"id,omitempty"`
+	Name          string             `json:"name,omitempty"`
+	Company       *CompanyReference  `json:"company,omitempty"`
+	Type          *FacilityType      `json:"type,omitempty"`
+	Site          *SiteReference     `json:"site,omitempty"`
+	Description   string             `json:"description,omitempty"`
+	NumberOfUsers int                `json:"numberOfUsers,omitempty"`
 	Diagram       *DocumentReference `json:"diagram,omitempty"`
-	ReviewBy      *UserReference    `json:"reviewBy,omitempty"`
-	DueDate       string            `json:"dueDate,omitempty"`
-	Address       *Address          `json:"address,omitempty"`
-	Notes         string            `json:"notes,omitempty"`
-	Modified      string            `json:"modified,omitempty"`
-	URL           string            `json:"url,omitempty"`
+	ReviewBy      *UserReference     `json:"reviewBy,omitempty"`
+	DueDate       string             `json:"dueDate,omitempty"`
+	Address       *Address           `json:"address,omitempty"`
+	Notes         string             `json:"notes,omitempty"`
+	Modified      string             `json:"modified,omitempty"`
+	URL           string             `json:"url,omitempty"`
 }
 
 // ---- Cabinet ----
@@ -412,19 +432,19 @@ type ConfigurationType struct {
 }
 
 type Configuration struct {
-	ID          int               `json:"id,omitempty"`
-	Name        string            `json:"name,omitempty"`
-	Company     *CompanyReference `json:"company,omitempty"`
+	ID          int                `json:"id,omitempty"`
+	Name        string             `json:"name,omitempty"`
+	Company     *CompanyReference  `json:"company,omitempty"`
 	Type        *ConfigurationType `json:"type,omitempty"`
-	Device      *DeviceReference  `json:"device,omitempty"`
-	URIPath     string            `json:"uriPath,omitempty"`
-	InstallDate string            `json:"installDate,omitempty"`
-	DateExpires string            `json:"dateExpires,omitempty"`
-	ReviewBy    *UserReference    `json:"reviewBy,omitempty"`
-	DueDate     string            `json:"dueDate,omitempty"`
-	Notes       string            `json:"notes,omitempty"`
-	Modified    string            `json:"modified,omitempty"`
-	URL         string            `json:"url,omitempty"`
+	Device      *DeviceReference   `json:"device,omitempty"`
+	URIPath     string             `json:"uriPath,omitempty"`
+	InstallDate string             `json:"installDate,omitempty"`
+	DateExpires string             `json:"dateExpires,omitempty"`
+	ReviewBy    *UserReference     `json:"reviewBy,omitempty"`
+	DueDate     string             `json:"dueDate,omitempty"`
+	Notes       string             `json:"notes,omitempty"`
+	Modified    string             `json:"modified,omitempty"`
+	URL         string             `json:"url,omitempty"`
 }
 
 // ---- Forms ----
@@ -470,18 +490,48 @@ type TemplateSection struct {
 }
 
 type Template struct {
-	ID       int               `json:"id,omitempty"`
-	Name     string            `json:"name,omitempty"`
+	ID       int                `json:"id,omitempty"`
+	Name     string             `json:"name,omitempty"`
 	Sections []*TemplateSection `json:"sections,omitempty"`
-	Modified string            `json:"modified,omitempty"`
+	Modified string             `json:"modified,omitempty"`
 }
 
 // ---- Interactions ----
 
 type Interaction struct {
 	ID       int    `json:"id,omitempty"`
-	Notes    string `json:"notes,omitempty"`
+	Note     string `json:"note,omitempty"`
 	DateTime string `json:"datetime,omitempty"`
+}
+
+// ---- Relationships (invLinks) ----
+
+// RelationshipTarget identifies the other end of a relationship link.
+type RelationshipTarget struct {
+	ItemType string `json:"itemType,omitempty"` // Device, Document, Configuration, …
+	ID       int    `json:"id,omitempty"`
+	Name     string `json:"name,omitempty"`
+}
+
+type Relationship struct {
+	ID     int                 `json:"id,omitempty"`
+	Target *RelationshipTarget `json:"target,omitempty"`
+	Notes  string              `json:"notes,omitempty"`
+}
+
+// ---- Folders & folder files (per-object document tree) ----
+
+type Folder struct {
+	ID             int    `json:"id,omitempty"`
+	Name           string `json:"name,omitempty"`
+	Description    string `json:"description,omitempty"`
+	ParentFolderID int    `json:"parentFolderId,omitempty"`
+}
+
+type FolderFile struct {
+	ID          int    `json:"id,omitempty"`
+	FileName    string `json:"fileName,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 // ---- System ----
