@@ -60,9 +60,18 @@ func main() {
 
 	authHandler := apiKeyMiddleware(cfg.MCPAPIKey, mcpHandler, logger)
 
+	// Unauthenticated readiness probe (for container healthchecks / mcpo gating).
+	// Reachable only once the initial snapshot is built and the server is listening.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+	mux.Handle("/", authHandler)
+
 	httpServer := &http.Server{
 		Addr:    cfg.ListenAddr,
-		Handler: authHandler,
+		Handler: mux,
 	}
 
 	// Graceful shutdown.

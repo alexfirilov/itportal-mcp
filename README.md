@@ -65,6 +65,29 @@ The server exposes a single Streamable HTTP endpoint at `/`. Configure your MCP 
 }
 ```
 
+### Open WebUI (via mcpo)
+
+Open WebUI consumes **OpenAPI tool servers**, not MCP directly. The `mcpo` compose
+service wraps this MCP server and re-exposes its tools as REST:
+
+```
+Open WebUI → OpenAPI → mcpo → HTTP+Bearer → itportal-mcp
+```
+
+```bash
+docker compose up -d            # starts both itportal-mcp and mcpo
+```
+
+`mcpo` listens on `MCPO_HOST_PORT` (default `8000`), Swagger UI at
+`http://<host>:8000/docs`. In Open WebUI, add it under **Settings → Tools** as an
+OpenAPI server pointing at `http://<host>:8000` (send `Authorization: Bearer
+<MCPO_API_KEY>` if you set one). `mcpo` authenticates to the MCP server itself using
+`MCP_API_KEY` from `.env`.
+
+> If `mcpo` can't connect, your version may expect `MCP_SERVER_TYPE=streamablehttp`
+> (no underscore). Note: only **tools** are exposed over REST — MCP resources such as
+> `itportal://snapshot` are not, so use `search_docs`/`list_entities` from Open WebUI.
+
 ---
 
 ## Tools & resources

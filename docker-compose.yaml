@@ -12,3 +12,33 @@ services:
       MCP_LISTEN_ADDR: ${MCP_LISTEN_ADDR:-:8080}
     ports:
       - "${MCP_HOST_PORT:-8080}:8080"
+    healthcheck:
+      # Ready only after the initial snapshot is built and the server is listening.
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 6
+      start_period: 60s
+
+  # mcpo: exposes the MCP server as an OpenAPI/REST tool server for non-MCP
+  # clients such as Open WebUI. Reads MCP_API_KEY from .env to authenticate to
+  # the MCP server; set MCPO_API_KEY to also protect mcpo's own REST surface.
+  # Swagger UI at http://<host>:${MCPO_HOST_PORT}/docs
+  mcpo:
+    build:
+      context: .
+      dockerfile: Dockerfile.mcpo
+    image: itportal-mcpo:latest
+    container_name: itportal-mcpo
+    restart: unless-stopped
+    depends_on:
+      itportal-mcp:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      MCP_SERVER_URL: ${MCP_SERVER_URL:-http://itportal-mcp:8080/}
+      MCP_SERVER_TYPE: ${MCP_SERVER_TYPE:-streamable_http}
+      MCPO_API_KEY: ${MCPO_API_KEY:-}
+    ports:
+      - "${MCPO_HOST_PORT:-8000}:8000"
