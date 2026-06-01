@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"log/slog"
 	"net/http"
 	"os"
@@ -100,21 +101,38 @@ func main() {
 	logger.Info("server stopped")
 }
 
-// apiKeyMiddleware enforces Bearer token authentication on all requests.
+// apiKeyMiddleware enforces shared-secret authentication on all requests. The
+// secret may be presented as "Authorization: Bearer <key>", a raw "Authorization:
+// <key>", or "X-API-Key: <key>" — gateways (LiteLLM, etc.) forward credentials in
+// different shapes, so all common forms are accepted.
 func apiKeyMiddleware(expectedKey string, next http.Handler, logger *slog.Logger) http.Handler {
+	expected := []byte(expectedKey)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		authHeader := r.Header.Get("Authorization")
-		if !strings.HasPrefix(authHeader, "Bearer ") {
-			logger.Warn("missing or malformed Authorization header", "remote", r.RemoteAddr)
+		token := extractAPIToken(r)
+		if token == "" {
+			logger.Warn("missing API credential", "remote", r.RemoteAddr)
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
-		token := strings.TrimPrefix(authHeader, "Bearer ")
-		if token != expectedKey {
+		if subtle.ConstantTimeCompare([]byte(token), expected) != 1 {
 			logger.Warn("invalid API key", "remote", r.RemoteAddr)
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// extractAPIToken pulls the shared secret from the Authorization or X-API-Key header.
+func extractAPIToken(r *http.Request) string {
+	if h := strings.TrimSpace(r.Header.Get("Authorization")); h != "" {
+		if len(h) >= 7 && strings.EqualFold(h[:7], "Bearer ") {
+			return strings.TrimSpace(h[7:])
+		}
+		return h // raw token without a scheme
+	}
+	if h := strings.TrimSpace(r.Header.Get("X-API-Key")); h != "" {
+		return h
+	}
+	return ""
 }
