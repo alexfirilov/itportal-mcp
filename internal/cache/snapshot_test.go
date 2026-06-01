@@ -38,6 +38,28 @@ func TestTruncateStripsHTML(t *testing.T) {
 	}
 }
 
+func TestBackfillPortalURLs(t *testing.T) {
+	s := &Snapshot{
+		Devices:    []itportal.Device{{ID: 9, Name: "fw01"}, {ID: 10, Name: "sw01", URL: "https://api-given/x"}},
+		Contacts:   []itportal.Contact{{ID: 4, FirstName: "Ada"}},
+		IPNetworks: []itportal.IPNetwork{{ID: 3, Name: "LAN"}},
+	}
+	backfillPortalURLs(s, "https://portal.example")
+
+	if s.Devices[0].URL != "https://portal.example/v4/app/devices/9" {
+		t.Errorf("device 9 url = %q, want constructed link", s.Devices[0].URL)
+	}
+	if s.Devices[1].URL != "https://api-given/x" {
+		t.Errorf("device 10 url overwritten = %q, want API value preserved", s.Devices[1].URL)
+	}
+	if s.Contacts[0].URL != "https://portal.example/v4/app/contacts/4" {
+		t.Errorf("contact 4 url = %q, want constructed link", s.Contacts[0].URL)
+	}
+	if s.IPNetworks[0].URL != "https://portal.example/v4/app/ipnetworks/3" {
+		t.Errorf("ipnetwork 3 url = %q, want constructed link", s.IPNetworks[0].URL)
+	}
+}
+
 // TestSnapshotMarkdownNoSecrets guards the security promise: passwords/2FA never
 // appear in the snapshot even when present on the source records.
 func TestSnapshotMarkdownNoSecrets(t *testing.T) {

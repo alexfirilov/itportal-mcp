@@ -39,6 +39,7 @@ type Cache struct {
 	client          *itportal.Client
 	limitPerEntity  int
 	deviceLimit     int
+	portalBaseURL   string
 	refreshInterval time.Duration
 	logger          *slog.Logger
 	current         atomic.Pointer[Snapshot]
@@ -56,6 +57,7 @@ func New(ctx context.Context, client *itportal.Client, limitPerEntity, deviceLim
 		client:          client,
 		limitPerEntity:  limitPerEntity,
 		deviceLimit:     deviceLimit,
+		portalBaseURL:   client.BaseURL(),
 		refreshInterval: refreshInterval,
 		logger:          logger,
 	}
@@ -288,8 +290,59 @@ func (c *Cache) build(ctx context.Context) (*Snapshot, error) {
 		Cabinets:       cabinets,
 		Configurations: configurations,
 	}
+	backfillPortalURLs(snap, c.portalBaseURL)
 	snap.Markdown = buildMarkdown(snap)
 	return snap, nil
+}
+
+// backfillPortalURLs sets a constructed portal deep-link on every entity whose
+// API-provided url is empty, so the snapshot and JSON resources always carry a
+// link. Entities that already have a url keep it untouched.
+func backfillPortalURLs(s *Snapshot, base string) {
+	if base == "" {
+		return
+	}
+	set := func(url *string, itemType string, id int) {
+		if *url == "" {
+			*url = itportal.BuildPortalURL(base, itemType, id)
+		}
+	}
+	for i := range s.Companies {
+		set(&s.Companies[i].URL, "company", s.Companies[i].ID)
+	}
+	for i := range s.Sites {
+		set(&s.Sites[i].URL, "site", s.Sites[i].ID)
+	}
+	for i := range s.Devices {
+		set(&s.Devices[i].URL, "device", s.Devices[i].ID)
+	}
+	for i := range s.KBs {
+		set(&s.KBs[i].URL, "kb", s.KBs[i].ID)
+	}
+	for i := range s.Contacts {
+		set(&s.Contacts[i].URL, "contact", s.Contacts[i].ID)
+	}
+	for i := range s.Agreements {
+		set(&s.Agreements[i].URL, "agreement", s.Agreements[i].ID)
+	}
+	for i := range s.IPNetworks {
+		set(&s.IPNetworks[i].URL, "ipnetwork", s.IPNetworks[i].ID)
+	}
+	for i := range s.Documents {
+		set(&s.Documents[i].URL, "document", s.Documents[i].ID)
+	}
+	for i := range s.Accounts {
+		set(&s.Accounts[i].URL, "account", s.Accounts[i].ID)
+	}
+	for i := range s.Facilities {
+		set(&s.Facilities[i].URL, "facility", s.Facilities[i].ID)
+	}
+	for i := range s.Cabinets {
+		set(&s.Cabinets[i].URL, "cabinet", s.Cabinets[i].ID)
+	}
+	for i := range s.Configurations {
+		set(&s.Configurations[i].URL, "configuration", s.Configurations[i].ID)
+	}
 }
 
 // buildMarkdown renders the snapshot as structured Markdown optimised for LLM consumption.
