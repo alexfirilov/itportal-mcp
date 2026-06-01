@@ -825,11 +825,14 @@ func buildMarkdown(s *Snapshot) string {
 }
 
 // headingLink renders name as a Markdown link when url is set, else plain name.
+// Brackets in name are escaped so they can't break the [text](url) syntax.
+var headingLinkNameEscaper = strings.NewReplacer("[", `\[`, "]", `\]`)
+
 func headingLink(name, url string) string {
 	if url == "" {
 		return name
 	}
-	return "[" + name + "](" + url + ")"
+	return "[" + headingLinkNameEscaper.Replace(name) + "](" + url + ")"
 }
 
 func formatAddress(a *itportal.Address) string {

@@ -112,6 +112,17 @@ func TestBuildMarkdownHeadingWithoutURLStaysPlain(t *testing.T) {
 	}
 }
 
+func TestHeadingLinkEscapesBrackets(t *testing.T) {
+	got := headingLink("UPS [APC]", "https://portal.example/v4/app/devices/9")
+	want := `[UPS \[APC\]](https://portal.example/v4/app/devices/9)`
+	if got != want {
+		t.Errorf("headingLink = %q, want %q", got, want)
+	}
+	if headingLink("plain", "") != "plain" {
+		t.Errorf("empty-url case should return plain name unchanged")
+	}
+}
+
 // TestSnapshotMarkdownNoSecrets guards the security promise: passwords/2FA never
 // appear in the snapshot even when present on the source records.
 func TestSnapshotMarkdownNoSecrets(t *testing.T) {
