@@ -40,23 +40,46 @@ func TestTruncateStripsHTML(t *testing.T) {
 
 func TestBackfillPortalURLs(t *testing.T) {
 	s := &Snapshot{
-		Devices:    []itportal.Device{{ID: 9, Name: "fw01"}, {ID: 10, Name: "sw01", URL: "https://api-given/x"}},
-		Contacts:   []itportal.Contact{{ID: 4, FirstName: "Ada"}},
-		IPNetworks: []itportal.IPNetwork{{ID: 3, Name: "LAN"}},
+		Companies:      []itportal.Company{{ID: 1, Name: "Acme"}},
+		Sites:          []itportal.Site{{ID: 2, Name: "HQ"}},
+		Devices:        []itportal.Device{{ID: 9, Name: "fw01"}, {ID: 10, Name: "sw01", URL: "https://api-given/x"}},
+		KBs:            []itportal.KB{{ID: 5, Name: "Runbook"}},
+		Contacts:       []itportal.Contact{{ID: 4, FirstName: "Ada"}},
+		Agreements:     []itportal.Agreement{{ID: 6}},
+		IPNetworks:     []itportal.IPNetwork{{ID: 3, Name: "LAN"}},
+		Documents:      []itportal.Document{{ID: 7, Description: "SOP"}},
+		Accounts:       []itportal.Account{{ID: 8}},
+		Facilities:     []itportal.Facility{{ID: 11, Name: "DC1"}},
+		Cabinets:       []itportal.Cabinet{{ID: 12, Name: "Rack1"}},
+		Configurations: []itportal.Configuration{{ID: 13, Name: "Cfg"}},
 	}
 	backfillPortalURLs(s, "https://portal.example")
 
-	if s.Devices[0].URL != "https://portal.example/v4/app/devices/9" {
-		t.Errorf("device 9 url = %q, want constructed link", s.Devices[0].URL)
+	checks := []struct {
+		got  string
+		want string
+	}{
+		{s.Companies[0].URL, "https://portal.example/v4/app/companies/1"},
+		{s.Sites[0].URL, "https://portal.example/v4/app/sites/2"},
+		{s.Devices[0].URL, "https://portal.example/v4/app/devices/9"},
+		{s.KBs[0].URL, "https://portal.example/v4/app/kbs/5"},
+		{s.Contacts[0].URL, "https://portal.example/v4/app/contacts/4"},
+		{s.Agreements[0].URL, "https://portal.example/v4/app/agreements/6"},
+		{s.IPNetworks[0].URL, "https://portal.example/v4/app/ipnetworks/3"},
+		{s.Documents[0].URL, "https://portal.example/v4/app/documents/7"},
+		{s.Accounts[0].URL, "https://portal.example/v4/app/accounts/8"},
+		{s.Facilities[0].URL, "https://portal.example/v4/app/facilities/11"},
+		{s.Cabinets[0].URL, "https://portal.example/v4/app/cabinets/12"},
+		{s.Configurations[0].URL, "https://portal.example/v4/app/configurations/13"},
 	}
+	for _, c := range checks {
+		if c.got != c.want {
+			t.Errorf("backfilled url = %q, want %q", c.got, c.want)
+		}
+	}
+	// API-provided URL must be preserved, not overwritten.
 	if s.Devices[1].URL != "https://api-given/x" {
 		t.Errorf("device 10 url overwritten = %q, want API value preserved", s.Devices[1].URL)
-	}
-	if s.Contacts[0].URL != "https://portal.example/v4/app/contacts/4" {
-		t.Errorf("contact 4 url = %q, want constructed link", s.Contacts[0].URL)
-	}
-	if s.IPNetworks[0].URL != "https://portal.example/v4/app/ipnetworks/3" {
-		t.Errorf("ipnetwork 3 url = %q, want constructed link", s.IPNetworks[0].URL)
 	}
 }
 
