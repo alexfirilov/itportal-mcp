@@ -1,0 +1,7 @@
+# Tiny stdio↔HTTP MCP bridge. Pre-installs `mcp-remote` so each Claude Desktop
+# spawn starts instantly instead of fetching from npm every time.
+FROM node:20-alpine
+
+RUN npm install -g mcp-remote@latest
+
+ENTRYPOINT ["npx", "mcp-remote"]
