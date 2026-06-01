@@ -83,6 +83,35 @@ func TestBackfillPortalURLs(t *testing.T) {
 	}
 }
 
+func TestBuildMarkdownRendersHeadingLinks(t *testing.T) {
+	snap := &Snapshot{
+		Devices:    []itportal.Device{{ID: 9, Name: "fw01", URL: "https://portal.example/v4/app/devices/9"}},
+		Contacts:   []itportal.Contact{{ID: 4, FirstName: "Ada", LastName: "Byte", URL: "https://portal.example/v4/app/contacts/4"}},
+		IPNetworks: []itportal.IPNetwork{{ID: 3, Name: "LAN", URL: "https://portal.example/v4/app/ipnetworks/3"}},
+	}
+	md := buildMarkdown(snap)
+
+	for _, want := range []string{
+		"### [fw01](https://portal.example/v4/app/devices/9) (ID: 9)",
+		"### [Ada Byte](https://portal.example/v4/app/contacts/4) (ID: 4)",
+		"### [LAN](https://portal.example/v4/app/ipnetworks/3) (ID: 3)",
+		"- **Portal Link**: https://portal.example/v4/app/contacts/4",
+		"- **Portal Link**: https://portal.example/v4/app/ipnetworks/3",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("markdown missing %q", want)
+		}
+	}
+}
+
+func TestBuildMarkdownHeadingWithoutURLStaysPlain(t *testing.T) {
+	snap := &Snapshot{Devices: []itportal.Device{{ID: 9, Name: "fw01"}}}
+	md := buildMarkdown(snap)
+	if !strings.Contains(md, "### fw01 (ID: 9)") {
+		t.Errorf("plain heading missing; got:\n%s", md)
+	}
+}
+
 // TestSnapshotMarkdownNoSecrets guards the security promise: passwords/2FA never
 // appear in the snapshot even when present on the source records.
 func TestSnapshotMarkdownNoSecrets(t *testing.T) {
