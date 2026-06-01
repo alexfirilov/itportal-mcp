@@ -88,6 +88,15 @@ OpenAPI server pointing at `http://<host>:8000` (send `Authorization: Bearer
 > (no underscore). Note: only **tools** are exposed over REST — MCP resources such as
 > `itportal://snapshot` are not, so use `search_docs`/`list_entities` from Open WebUI.
 
+To route Open WebUI tool calls **through a LiteLLM MCP gateway** (so a LiteLLM team
+scopes the tools), point `mcpo` at the gateway instead of the MCP server:
+`MCP_SERVER_URL=http://litellm:4000/<server>/mcp` and
+`MCP_HEADERS_JSON={"x-litellm-api-key":"Bearer <team-key>"}`. Register the mcpo URL
+in Open WebUI as a **Global** tool server (Admin → Settings → Tools) — global servers
+are called backend-side, so they can reach container names; per-user servers are
+browser-side and cannot. The full production wiring is in
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+
 ---
 
 ## Tools & resources
