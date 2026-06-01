@@ -39,6 +39,12 @@ services:
     environment:
       MCP_SERVER_URL: ${MCP_SERVER_URL:-http://itportal-mcp:8080/}
       MCP_SERVER_TYPE: ${MCP_SERVER_TYPE:-streamable_http}
+      # Default (unset): mcpo authenticates to the MCP server with
+      # Authorization: Bearer ${MCP_API_KEY}. To route through a LiteLLM MCP
+      # gateway instead (preserving team scope), point MCP_SERVER_URL at
+      # http://litellm:4000/<server>/mcp and set MCP_HEADERS_JSON to e.g.
+      # {"x-litellm-api-key":"Bearer sk-itteamkey"}.
+      MCP_HEADERS_JSON: ${MCP_HEADERS_JSON:-}
       MCPO_API_KEY: ${MCPO_API_KEY:-}
     ports:
       - "${MCPO_HOST_PORT:-8000}:8000"
