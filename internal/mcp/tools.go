@@ -353,19 +353,20 @@ func (h *Handler) GetEntityDetails(ctx context.Context, _ *sdkmcp.CallToolReques
 		return toolError("id must not be empty"), nil, nil
 	}
 
-	switch strings.ToLower(strings.ReplaceAll(input.EntityType, "_", "")) {
+	norm := strings.ToLower(strings.ReplaceAll(input.EntityType, "_", ""))
+	switch norm {
 	case "company":
 		v, err := h.client.GetCompany(ctx, input.ID)
 		if err != nil {
 			return nil, nil, fmt.Errorf("get company: %w", err)
 		}
-		return marshalResult(v)
+		return h.marshalWithURL(norm, v.ID, &v.URL, v)
 	case "site":
 		v, err := h.client.GetSite(ctx, input.ID)
 		if err != nil {
 			return nil, nil, fmt.Errorf("get site: %w", err)
 		}
-		return marshalResult(v)
+		return h.marshalWithURL(norm, v.ID, &v.URL, v)
 	case "device":
 		return h.getDeviceDetails(ctx, input.ID)
 	case "kb", "knowledgebase":
@@ -373,55 +374,55 @@ func (h *Handler) GetEntityDetails(ctx context.Context, _ *sdkmcp.CallToolReques
 		if err != nil {
 			return nil, nil, fmt.Errorf("get KB: %w", err)
 		}
-		return marshalResult(v)
+		return h.marshalWithURL(norm, v.ID, &v.URL, v)
 	case "contact":
 		v, err := h.client.GetContact(ctx, input.ID)
 		if err != nil {
 			return nil, nil, fmt.Errorf("get contact: %w", err)
 		}
-		return marshalResult(v)
+		return h.marshalWithURL(norm, v.ID, &v.URL, v)
 	case "account":
 		v, err := h.client.GetAccount(ctx, input.ID)
 		if err != nil {
 			return nil, nil, fmt.Errorf("get account: %w", err)
 		}
-		return marshalResult(v)
+		return h.marshalWithURL(norm, v.ID, &v.URL, v)
 	case "agreement":
 		v, err := h.client.GetAgreement(ctx, input.ID)
 		if err != nil {
 			return nil, nil, fmt.Errorf("get agreement: %w", err)
 		}
-		return marshalResult(v)
+		return h.marshalWithURL(norm, v.ID, &v.URL, v)
 	case "document":
 		v, err := h.client.GetDocument(ctx, input.ID)
 		if err != nil {
 			return nil, nil, fmt.Errorf("get document: %w", err)
 		}
-		return marshalResult(v)
+		return h.marshalWithURL(norm, v.ID, &v.URL, v)
 	case "facility":
 		v, err := h.client.GetFacility(ctx, input.ID)
 		if err != nil {
 			return nil, nil, fmt.Errorf("get facility: %w", err)
 		}
-		return marshalResult(v)
+		return h.marshalWithURL(norm, v.ID, &v.URL, v)
 	case "cabinet":
 		v, err := h.client.GetCabinet(ctx, input.ID)
 		if err != nil {
 			return nil, nil, fmt.Errorf("get cabinet: %w", err)
 		}
-		return marshalResult(v)
+		return h.marshalWithURL(norm, v.ID, &v.URL, v)
 	case "configuration":
 		v, err := h.client.GetConfiguration(ctx, input.ID)
 		if err != nil {
 			return nil, nil, fmt.Errorf("get configuration: %w", err)
 		}
-		return marshalResult(v)
+		return h.marshalWithURL(norm, v.ID, &v.URL, v)
 	case "ipnetwork":
 		v, err := h.client.GetIPNetwork(ctx, input.ID)
 		if err != nil {
 			return nil, nil, fmt.Errorf("get IP network: %w", err)
 		}
-		return marshalResult(v)
+		return h.marshalWithURL(norm, v.ID, &v.URL, v)
 	default:
 		return toolError(fmt.Sprintf("unknown entity_type %q", input.EntityType)), nil, nil
 	}
@@ -432,6 +433,9 @@ func (h *Handler) getDeviceDetails(ctx context.Context, id string) (*sdkmcp.Call
 	device, err := h.client.GetDevice(ctx, id)
 	if err != nil {
 		return nil, nil, fmt.Errorf("get device: %w", err)
+	}
+	if device.URL == "" {
+		device.URL = itportal.BuildPortalURL(h.baseURL, "device", device.ID)
 	}
 	ips, err := h.client.GetDeviceIPs(ctx, id)
 	if err != nil {
@@ -664,7 +668,7 @@ func (h *Handler) CreateEntity(ctx context.Context, _ *sdkmcp.CallToolRequest, i
 			if err != nil {
 				return 0, "", fmt.Errorf("create IP network: %w", err)
 			}
-			return created.ID, "", nil
+			return created.ID, created.URL, nil
 		})
 	case "facility":
 		var v itportal.Facility
@@ -877,6 +881,16 @@ func marshalResult(v interface{}) (*sdkmcp.CallToolResult, any, error) {
 		return nil, nil, fmt.Errorf("marshal result: %w", err)
 	}
 	return toolText(string(data)), nil, nil
+}
+
+// marshalWithURL backfills a constructed portal deep-link onto an entity whose
+// API-provided url is empty, then marshals it. url must point at the entity's URL
+// field so the backfill is reflected in the marshalled output.
+func (h *Handler) marshalWithURL(itemType string, id int, url *string, v interface{}) (*sdkmcp.CallToolResult, any, error) {
+	if *url == "" {
+		*url = itportal.BuildPortalURL(h.baseURL, itemType, id)
+	}
+	return marshalResult(v)
 }
 
 // sectionHeader returns the markdown section heading for an entity type filter.

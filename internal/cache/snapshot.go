@@ -39,6 +39,7 @@ type Cache struct {
 	client          *itportal.Client
 	limitPerEntity  int
 	deviceLimit     int
+	portalBaseURL   string
 	refreshInterval time.Duration
 	logger          *slog.Logger
 	current         atomic.Pointer[Snapshot]
@@ -56,6 +57,7 @@ func New(ctx context.Context, client *itportal.Client, limitPerEntity, deviceLim
 		client:          client,
 		limitPerEntity:  limitPerEntity,
 		deviceLimit:     deviceLimit,
+		portalBaseURL:   client.BaseURL(),
 		refreshInterval: refreshInterval,
 		logger:          logger,
 	}
@@ -288,8 +290,59 @@ func (c *Cache) build(ctx context.Context) (*Snapshot, error) {
 		Cabinets:       cabinets,
 		Configurations: configurations,
 	}
+	backfillPortalURLs(snap, c.portalBaseURL)
 	snap.Markdown = buildMarkdown(snap)
 	return snap, nil
+}
+
+// backfillPortalURLs sets a constructed portal deep-link on every entity whose
+// API-provided url is empty, so the snapshot and JSON resources always carry a
+// link. Entities that already have a url keep it untouched.
+func backfillPortalURLs(s *Snapshot, base string) {
+	if base == "" {
+		return
+	}
+	set := func(url *string, itemType string, id int) {
+		if *url == "" {
+			*url = itportal.BuildPortalURL(base, itemType, id)
+		}
+	}
+	for i := range s.Companies {
+		set(&s.Companies[i].URL, "company", s.Companies[i].ID)
+	}
+	for i := range s.Sites {
+		set(&s.Sites[i].URL, "site", s.Sites[i].ID)
+	}
+	for i := range s.Devices {
+		set(&s.Devices[i].URL, "device", s.Devices[i].ID)
+	}
+	for i := range s.KBs {
+		set(&s.KBs[i].URL, "kb", s.KBs[i].ID)
+	}
+	for i := range s.Contacts {
+		set(&s.Contacts[i].URL, "contact", s.Contacts[i].ID)
+	}
+	for i := range s.Agreements {
+		set(&s.Agreements[i].URL, "agreement", s.Agreements[i].ID)
+	}
+	for i := range s.IPNetworks {
+		set(&s.IPNetworks[i].URL, "ipnetwork", s.IPNetworks[i].ID)
+	}
+	for i := range s.Documents {
+		set(&s.Documents[i].URL, "document", s.Documents[i].ID)
+	}
+	for i := range s.Accounts {
+		set(&s.Accounts[i].URL, "account", s.Accounts[i].ID)
+	}
+	for i := range s.Facilities {
+		set(&s.Facilities[i].URL, "facility", s.Facilities[i].ID)
+	}
+	for i := range s.Cabinets {
+		set(&s.Cabinets[i].URL, "cabinet", s.Cabinets[i].ID)
+	}
+	for i := range s.Configurations {
+		set(&s.Configurations[i].URL, "configuration", s.Configurations[i].ID)
+	}
 }
 
 // buildMarkdown renders the snapshot as structured Markdown optimised for LLM consumption.
@@ -307,7 +360,7 @@ func buildMarkdown(s *Snapshot) string {
 	// ---- Companies ----
 	fmt.Fprintf(&b, "## Companies (%d)\n\n", len(s.Companies))
 	for _, co := range s.Companies {
-		fmt.Fprintf(&b, "### %s (ID: %d)\n", co.Name, co.ID)
+		fmt.Fprintf(&b, "### %s (ID: %d)\n", headingLink(co.Name, co.URL), co.ID)
 		if co.Abbreviation != "" {
 			fmt.Fprintf(&b, "- **Code**: %s\n", co.Abbreviation)
 		}
@@ -345,7 +398,7 @@ func buildMarkdown(s *Snapshot) string {
 		if si.Company != nil {
 			companyCtx = " — " + si.Company.Name
 		}
-		fmt.Fprintf(&b, "### %s (ID: %d)%s\n", si.Name, si.ID, companyCtx)
+		fmt.Fprintf(&b, "### %s (ID: %d)%s\n", headingLink(si.Name, si.URL), si.ID, companyCtx)
 		if si.Company != nil {
 			fmt.Fprintf(&b, "- **Company**: %s (ID: %d)\n", si.Company.Name, si.Company.ID)
 		}
@@ -384,7 +437,7 @@ func buildMarkdown(s *Snapshot) string {
 		if d.Type != nil && d.Type.Name != "" {
 			typeName = " [" + d.Type.Name + "]"
 		}
-		fmt.Fprintf(&b, "### %s (ID: %d)%s%s\n", d.Name, d.ID, typeName, locationCtx)
+		fmt.Fprintf(&b, "### %s (ID: %d)%s%s\n", headingLink(d.Name, d.URL), d.ID, typeName, locationCtx)
 		if d.Company != nil {
 			fmt.Fprintf(&b, "- **Company**: %s (ID: %d)\n", d.Company.Name, d.Company.ID)
 		}
@@ -432,7 +485,7 @@ func buildMarkdown(s *Snapshot) string {
 		if kb.Company != nil {
 			companyCtx = " — " + kb.Company.Name
 		}
-		fmt.Fprintf(&b, "### %s (ID: %d)%s\n", kb.Name, kb.ID, companyCtx)
+		fmt.Fprintf(&b, "### %s (ID: %d)%s\n", headingLink(kb.Name, kb.URL), kb.ID, companyCtx)
 		if kb.Company != nil {
 			fmt.Fprintf(&b, "- **Company**: %s (ID: %d)\n", kb.Company.Name, kb.Company.ID)
 		}
@@ -465,7 +518,7 @@ func buildMarkdown(s *Snapshot) string {
 		if co.Company != nil {
 			companyCtx = " — " + co.Company.Name
 		}
-		fmt.Fprintf(&b, "### %s (ID: %d)%s\n", fullName, co.ID, companyCtx)
+		fmt.Fprintf(&b, "### %s (ID: %d)%s\n", headingLink(fullName, co.URL), co.ID, companyCtx)
 		if co.Company != nil {
 			fmt.Fprintf(&b, "- **Company**: %s (ID: %d)\n", co.Company.Name, co.Company.ID)
 		}
@@ -484,6 +537,9 @@ func buildMarkdown(s *Snapshot) string {
 		if co.Site != nil {
 			fmt.Fprintf(&b, "- **Site**: %s\n", co.Site.Name)
 		}
+		if co.URL != "" {
+			fmt.Fprintf(&b, "- **Portal Link**: %s\n", co.URL)
+		}
 		b.WriteString("\n")
 	}
 
@@ -499,7 +555,7 @@ func buildMarkdown(s *Snapshot) string {
 			if ag.Company != nil {
 				companyCtx = " — " + ag.Company.Name
 			}
-			fmt.Fprintf(&b, "### Agreement ID: %d%s%s\n", ag.ID, typeName, companyCtx)
+			fmt.Fprintf(&b, "### %s%s%s\n", headingLink(fmt.Sprintf("Agreement ID: %d", ag.ID), ag.URL), typeName, companyCtx)
 			if ag.Company != nil {
 				fmt.Fprintf(&b, "- **Company**: %s (ID: %d)\n", ag.Company.Name, ag.Company.ID)
 			}
@@ -527,7 +583,7 @@ func buildMarkdown(s *Snapshot) string {
 			if net.Company != nil {
 				companyCtx = " — " + net.Company.Name
 			}
-			fmt.Fprintf(&b, "### %s (ID: %d)%s\n", net.Name, net.ID, companyCtx)
+			fmt.Fprintf(&b, "### %s (ID: %d)%s\n", headingLink(net.Name, net.URL), net.ID, companyCtx)
 			if net.Company != nil {
 				fmt.Fprintf(&b, "- **Company**: %s (ID: %d)\n", net.Company.Name, net.Company.ID)
 			}
@@ -552,6 +608,9 @@ func buildMarkdown(s *Snapshot) string {
 			if net.Description != "" {
 				fmt.Fprintf(&b, "- **Notes**: %s\n", truncate(net.Description, 200))
 			}
+			if net.URL != "" {
+				fmt.Fprintf(&b, "- **Portal Link**: %s\n", net.URL)
+			}
 			b.WriteString("\n")
 		}
 	}
@@ -568,7 +627,7 @@ func buildMarkdown(s *Snapshot) string {
 			if doc.Type != nil {
 				typeName = " [" + doc.Type.Name + "]"
 			}
-			fmt.Fprintf(&b, "### %s (ID: %d)%s%s\n", doc.Description, doc.ID, typeName, companyCtx)
+			fmt.Fprintf(&b, "### %s (ID: %d)%s%s\n", headingLink(doc.Description, doc.URL), doc.ID, typeName, companyCtx)
 			if doc.Company != nil {
 				fmt.Fprintf(&b, "- **Company**: %s (ID: %d)\n", doc.Company.Name, doc.Company.ID)
 			}
@@ -602,7 +661,7 @@ func buildMarkdown(s *Snapshot) string {
 				typeName = " [" + ac.Type.Name + "]"
 			}
 			heading := fmt.Sprintf("Account ID: %d%s%s", ac.ID, typeName, companyCtx)
-			fmt.Fprintf(&b, "### %s\n", heading)
+			fmt.Fprintf(&b, "### %s\n", headingLink(heading, ac.URL))
 			if ac.Company != nil {
 				fmt.Fprintf(&b, "- **Company**: %s (ID: %d)\n", ac.Company.Name, ac.Company.ID)
 			}
@@ -658,7 +717,7 @@ func buildMarkdown(s *Snapshot) string {
 			if f.Type != nil {
 				typeName = " [" + f.Type.Name + "]"
 			}
-			fmt.Fprintf(&b, "### %s (ID: %d)%s%s\n", f.Name, f.ID, typeName, companyCtx)
+			fmt.Fprintf(&b, "### %s (ID: %d)%s%s\n", headingLink(f.Name, f.URL), f.ID, typeName, companyCtx)
 			if f.Company != nil {
 				fmt.Fprintf(&b, "- **Company**: %s (ID: %d)\n", f.Company.Name, f.Company.ID)
 			}
@@ -695,7 +754,7 @@ func buildMarkdown(s *Snapshot) string {
 			if cab.Company != nil {
 				companyCtx = " — " + cab.Company.Name
 			}
-			fmt.Fprintf(&b, "### %s (ID: %d)%s\n", cab.Name, cab.ID, companyCtx)
+			fmt.Fprintf(&b, "### %s (ID: %d)%s\n", headingLink(cab.Name, cab.URL), cab.ID, companyCtx)
 			if cab.Company != nil {
 				fmt.Fprintf(&b, "- **Company**: %s (ID: %d)\n", cab.Company.Name, cab.Company.ID)
 			}
@@ -736,7 +795,7 @@ func buildMarkdown(s *Snapshot) string {
 			if cfg.Type != nil {
 				typeName = " [" + cfg.Type.Name + "]"
 			}
-			fmt.Fprintf(&b, "### %s (ID: %d)%s%s\n", cfg.Name, cfg.ID, typeName, companyCtx)
+			fmt.Fprintf(&b, "### %s (ID: %d)%s%s\n", headingLink(cfg.Name, cfg.URL), cfg.ID, typeName, companyCtx)
 			if cfg.Company != nil {
 				fmt.Fprintf(&b, "- **Company**: %s (ID: %d)\n", cfg.Company.Name, cfg.Company.ID)
 			}
@@ -763,6 +822,17 @@ func buildMarkdown(s *Snapshot) string {
 	}
 
 	return b.String()
+}
+
+// headingLink renders name as a Markdown link when url is set, else plain name.
+// Brackets in name are escaped so they can't break the [text](url) syntax.
+var headingLinkNameEscaper = strings.NewReplacer("[", `\[`, "]", `\]`)
+
+func headingLink(name, url string) string {
+	if url == "" {
+		return name
+	}
+	return "[" + headingLinkNameEscaper.Replace(name) + "](" + url + ")"
 }
 
 func formatAddress(a *itportal.Address) string {
