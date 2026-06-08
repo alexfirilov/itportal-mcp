@@ -12,13 +12,14 @@ import (
 
 // Handler bundles the shared dependencies injected into every tool/resource handler.
 type Handler struct {
-	client *itportal.Client
-	cache  *cache.Cache
+	client  *itportal.Client
+	cache   *cache.Cache
+	baseURL string
 }
 
 // NewServer builds and configures the MCP server with all tools and resources.
 func NewServer(client *itportal.Client, c *cache.Cache) *sdkmcp.Server {
-	h := &Handler{client: client, cache: c}
+	h := &Handler{client: client, cache: c, baseURL: client.BaseURL()}
 
 	instructions := `You are an ITPortal documentation assistant for a Managed Service Provider, backed by
 the ITPortal REST API v2.1.
@@ -53,7 +54,13 @@ Field conventions:
 - Dates are YYYY-MM-DD strings.
 - The "url" field on entities is a read-only portal deep-link, not editable.
 - Relationship/credential targets use an itemType + id pair (e.g. {"itemType":"Device","id":42}).
-- Credentials (passwords, 2FA) are never in the snapshot; read them explicitly with get_credentials.`
+- Credentials (passwords, 2FA) are never in the snapshot; read them explicitly with get_credentials.
+- Hyperlinking: when your answer mentions a specific documented object by name (company, site,
+  device, KB article, contact, account, agreement, document, IP network, facility, cabinet or
+  configuration), render the name as a Markdown link to its portal url — e.g.
+  [CORE-SW-01](https://portal.example/v4/app/devices/42). Each object's link is in its snapshot
+  heading and its "url" field; reuse it. Never invent a url, and never link an object that is not
+  present in the snapshot or a tool result.`
 
 	server := sdkmcp.NewServer(&sdkmcp.Implementation{
 		Name:    "itportal-mcp",
