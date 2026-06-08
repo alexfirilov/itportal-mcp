@@ -668,7 +668,7 @@ func (h *Handler) CreateEntity(ctx context.Context, _ *sdkmcp.CallToolRequest, i
 			if err != nil {
 				return 0, "", fmt.Errorf("create IP network: %w", err)
 			}
-			return created.ID, "", nil
+			return created.ID, created.URL, nil
 		})
 	case "facility":
 		var v itportal.Facility
