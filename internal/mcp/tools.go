@@ -55,6 +55,7 @@ type CreateDeviceInput struct {
 	CompanyID       int     `json:"company_id" jsonschema:"ID of the company this device belongs to (required)"`
 	SiteID          int     `json:"site_id,omitempty" jsonschema:"ID of the site where this device is located"`
 	Name            string  `json:"name" jsonschema:"Device hostname or display name (required)"`
+	HostName        string  `json:"host_name,omitempty" jsonschema:"Device hostName (required by the API). Defaults to name when omitted."`
 	TypeName        string  `json:"type_name,omitempty" jsonschema:"Device type (e.g. Server, Router, Switch, Firewall, Workstation, Printer, Access Point)"`
 	Description     string  `json:"description,omitempty" jsonschema:"Purpose or description of the device"`
 	Manufacturer    string  `json:"manufacturer,omitempty" jsonschema:"Hardware manufacturer (e.g. Cisco, Fortinet, Dell, HP, Ubiquiti)"`
@@ -449,6 +450,7 @@ func (h *Handler) getDeviceDetails(ctx context.Context, id string) (*sdkmcp.Call
 	if err != nil {
 		return nil, nil, fmt.Errorf("get device management URLs: %w", err)
 	}
+	mgmtURLs = dedupeManagementURLs(mgmtURLs)
 
 	type deviceDetail struct {
 		Device         *itportal.Device      `json:"device"`
@@ -463,6 +465,30 @@ func (h *Handler) getDeviceDetails(ctx context.Context, id string) (*sdkmcp.Call
 		ManagementURLs: mgmtURLs,
 	}
 	return marshalResult(detail)
+}
+
+// dedupeManagementURLs removes duplicate management-URL records. Some ITPortal
+// sub-resource endpoints can return the same record repeatedly (e.g. when the
+// list endpoint echoes a stale cursor), so distinct records are kept by id, or
+// by title+url when the id is absent. Order is preserved.
+func dedupeManagementURLs(urls []itportal.DeviceMUrl) []itportal.DeviceMUrl {
+	if len(urls) <= 1 {
+		return urls
+	}
+	seen := make(map[string]bool, len(urls))
+	out := urls[:0:0]
+	for _, u := range urls {
+		key := strconv.Itoa(u.ID)
+		if u.ID == 0 {
+			key = "t:" + u.Title + "|u:" + u.URL
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, u)
+	}
+	return out
 }
 
 // CreateKBArticle creates a new knowledge base article.
@@ -502,8 +528,16 @@ func (h *Handler) CreateDevice(ctx context.Context, _ *sdkmcp.CallToolRequest, i
 		return toolError("name is required"), nil, nil
 	}
 
+	// hostName is a required field on the devices endpoint. Default it to name
+	// when the caller does not supply one explicitly.
+	hostName := input.HostName
+	if hostName == "" {
+		hostName = input.Name
+	}
+
 	device := &itportal.Device{
 		Name:            input.Name,
+		HostName:        hostName,
 		Company:         &itportal.CompanyReference{ID: input.CompanyID},
 		Description:     input.Description,
 		Manufacturer:    input.Manufacturer,

@@ -370,6 +370,13 @@ func listAll[T any](ctx context.Context, c *Client, path string, opts *ListOptio
 		if meta.NextCursor == "" || len(items) == 0 {
 			break
 		}
+		// Guard against endpoints (e.g. some device sub-resource collections) that
+		// echo back the same nextCursor regardless of the cursor we send. Without
+		// this check the loop would re-fetch the same page and append duplicate
+		// records until maxItems, producing huge, repeated result sets.
+		if meta.NextCursor == cursor {
+			break
+		}
 		cursor = meta.NextCursor
 	}
 	return all, nil

@@ -288,6 +288,7 @@ type AccountType struct {
 
 type Account struct {
 	ID             int               `json:"id,omitempty"`
+	Name           string            `json:"name,omitempty"` // required by the accounts endpoint
 	Company        *CompanyReference `json:"company,omitempty"`
 	Type           *AccountType      `json:"type,omitempty"`
 	Username       string            `json:"username,omitempty"`
