@@ -35,6 +35,8 @@ type Snapshot struct {
 }
 
 // Cache holds the current snapshot and refreshes it on a configurable schedule.
+// Each snapshot build also (re)builds an embedded SQLite Store derived from the
+// snapshot, which backs the compact index, per-section resources and search.
 type Cache struct {
 	client          *itportal.Client
 	limitPerEntity  int
@@ -42,7 +44,9 @@ type Cache struct {
 	portalBaseURL   string
 	refreshInterval time.Duration
 	logger          *slog.Logger
+	storePath       string
 	current         atomic.Pointer[Snapshot]
+	store           atomic.Pointer[Store]
 }
 
 // New creates a Cache and performs an initial synchronous snapshot build.
@@ -60,6 +64,7 @@ func New(ctx context.Context, client *itportal.Client, limitPerEntity, deviceLim
 		portalBaseURL:   client.BaseURL(),
 		refreshInterval: refreshInterval,
 		logger:          logger,
+		storePath:       StorePath(),
 	}
 
 	snap, err := c.build(ctx)
@@ -67,6 +72,7 @@ func New(ctx context.Context, client *itportal.Client, limitPerEntity, deviceLim
 		return nil, fmt.Errorf("initial snapshot build: %w", err)
 	}
 	c.current.Store(snap)
+	c.rebuildStore(snap)
 	logger.Info("initial snapshot built",
 		"companies", len(snap.Companies),
 		"sites", len(snap.Sites),
@@ -90,6 +96,27 @@ func (c *Cache) Get() *Snapshot {
 	return c.current.Load()
 }
 
+// Store returns the current SQLite-backed store. Safe for concurrent use; never
+// returns nil after New succeeds (a failed store rebuild keeps the prior store).
+func (c *Cache) Store() *Store {
+	return c.store.Load()
+}
+
+// rebuildStore builds a fresh SQLite store from snap and atomically swaps it in,
+// closing the previous store. A build failure is logged and the old store is
+// retained so reads keep working on stale-but-valid data.
+func (c *Cache) rebuildStore(snap *Snapshot) {
+	st, err := BuildStore(snap, c.storePath)
+	if err != nil {
+		c.logger.Error("snapshot store rebuild failed; keeping previous store", "error", err)
+		return
+	}
+	old := c.store.Swap(st)
+	if old != nil {
+		_ = old.Close()
+	}
+}
+
 // Refresh forces an immediate snapshot rebuild, blocking until complete.
 func (c *Cache) Refresh(ctx context.Context) (*Snapshot, error) {
 	snap, err := c.build(ctx)
@@ -97,6 +124,7 @@ func (c *Cache) Refresh(ctx context.Context) (*Snapshot, error) {
 		return nil, err
 	}
 	c.current.Store(snap)
+	c.rebuildStore(snap)
 	c.logger.Info("snapshot refreshed manually",
 		"companies", len(snap.Companies),
 		"sites", len(snap.Sites),
@@ -132,6 +160,7 @@ func (c *Cache) StartBackgroundRefresh(ctx context.Context) {
 					continue
 				}
 				c.current.Store(snap)
+				c.rebuildStore(snap)
 				c.logger.Info("background snapshot refresh complete",
 					"companies", len(snap.Companies),
 					"sites", len(snap.Sites),

@@ -22,23 +22,27 @@ func NewServer(client *itportal.Client, c *cache.Cache) *sdkmcp.Server {
 	h := &Handler{client: client, cache: c, baseURL: client.BaseURL()}
 
 	instructions := `You are an ITPortal documentation assistant for a Managed Service Provider, backed by
-the ITPortal REST API v2.1.
+the ITPortal REST API v2.1 and an embedded SQLite index of the documentation.
 
 You have access to:
-1. A live documentation snapshot (itportal://snapshot) containing all documented companies, sites,
-   devices, knowledge base articles, contacts, agreements, IP networks, documents, accounts,
-   facilities, cabinets and configurations. Reading this resource once per conversation loads the
-   entire environment into context and is cached — subsequent turns do not re-charge for those tokens.
-2. Tools to search, query, create, update and delete documentation in real time.
+1. A COMPACT documentation index (itportal://snapshot) — one short line per object (type, id, name,
+   one-line summary, portal url) across every documented company, site, device, KB article, contact,
+   agreement, IP network, document, account, facility, cabinet and configuration. It is small by
+   design and fits the tool-output limit. It is NOT the full environment — drill down for detail.
+2. Per-section resources (itportal://snapshot/devices, /configurations, /accounts, …) that return
+   the full rows of one section as paginated JSON (use ?offset= & ?limit= to page).
+3. Tools to search, query, create, update and delete documentation in real time, backed by the
+   SQLite index for fast, precise lookups.
 
 Workflow for answering questions:
-1. At the start of every conversation, read itportal://snapshot to load the full environment into
-   context. Do this once — not on every query. The content is prompt-cached so the cost is minimal.
-2. For follow-up targeted lookups within the same conversation, use search_docs to quickly find
-   relevant sections without re-reading the full snapshot.
-3. For specific entity sub-resources (IPs, notes, management URLs on a device), use get_entity_details.
-4. The snapshot auto-refreshes periodically. Call refresh_snapshot if you need guaranteed fresh data
-   mid-conversation, then re-read itportal://snapshot to update your context.
+1. Read itportal://snapshot once to get the compact index of what exists (ids, names, summaries).
+   Do NOT try to load one giant full-environment blob — there isn't one; that was the old anti-pattern.
+2. To find specific objects, use search_docs(query[,entity_type]). It does exact lookups by IP
+   address, serial number and name, and full-text keyword search — far more precise than scanning text.
+3. For a full record (and, for devices, IPs/notes/management URLs), use get_entity_details(entity_type,id).
+4. To enumerate a whole section, read the matching itportal://snapshot/<section> resource and page it.
+5. The index auto-refreshes periodically. Call refresh_snapshot for guaranteed-fresh data, then
+   re-read itportal://snapshot.
 
 Tool guide:
 - Read:    search_docs, list_entities, get_entity_details, get_logs, get_credentials.
@@ -70,54 +74,48 @@ Field conventions:
 	})
 
 	// ---- Resources ----
-	// itportal://snapshot  — full Markdown documentation (primary context caching target)
+	// itportal://snapshot — COMPACT index (default entry point). Small JSON: one
+	// line per object. Drill down with search_docs / get_entity_details / sections.
 	server.AddResource(&sdkmcp.Resource{
-		Name:        "ITPortal Documentation Snapshot",
-		Description: "Full documentation snapshot: all companies, sites, devices, KB articles, contacts, agreements and IP networks in Markdown. Read this once to load the entire environment into context.",
-		URI:         "itportal://snapshot",
-		MIMEType:    "text/markdown",
-	}, h.SnapshotResource)
+		Name: "ITPortal Documentation Index",
+		Description: "COMPACT index of every documented object: type, id, name, one-line summary and portal " +
+			"url. Small enough to fit the output limit — read this first to see what exists, then drill " +
+			"down with search_docs and get_entity_details. NOT a full-environment dump. Supports " +
+			"?type=device&limit=&offset= query params.",
+		URI:      "itportal://snapshot",
+		MIMEType: "application/json",
+	}, h.IndexResource)
 
-	server.AddResource(&sdkmcp.Resource{
-		Name:        "Companies",
-		Description: "All documented companies as JSON",
-		URI:         "itportal://companies",
-		MIMEType:    "application/json",
-	}, h.CompaniesResource)
-
-	server.AddResource(&sdkmcp.Resource{
-		Name:        "Sites",
-		Description: "All documented sites as JSON",
-		URI:         "itportal://sites",
-		MIMEType:    "application/json",
-	}, h.SitesResource)
-
-	server.AddResource(&sdkmcp.Resource{
-		Name:        "Devices",
-		Description: "All documented devices as JSON",
-		URI:         "itportal://devices",
-		MIMEType:    "application/json",
-	}, h.DevicesResource)
-
-	server.AddResource(&sdkmcp.Resource{
-		Name:        "Knowledge Base Articles",
-		Description: "All KB articles as JSON",
-		URI:         "itportal://kbs",
-		MIMEType:    "application/json",
-	}, h.KBsResource)
-
-	server.AddResource(&sdkmcp.Resource{
-		Name:        "Contacts",
-		Description: "All documented contacts as JSON",
-		URI:         "itportal://contacts",
-		MIMEType:    "application/json",
-	}, h.ContactsResource)
+	// itportal://snapshot/<section> — full rows of one section, paginated JSON.
+	sectionDescriptions := map[string]string{
+		"companies":      "Full company records",
+		"sites":          "Full site records",
+		"devices":        "Full device records (hardware, serial, location)",
+		"kbs":            "Knowledge base articles with content",
+		"contacts":       "Full contact records",
+		"agreements":     "Full agreement records",
+		"ipnetworks":     "Full IP network records",
+		"documents":      "Full document records",
+		"accounts":       "Full account records (no passwords/2FA)",
+		"facilities":     "Full facility records",
+		"cabinets":       "Full cabinet records",
+		"configurations": "Full configuration records",
+	}
+	for _, section := range sectionNames {
+		server.AddResource(&sdkmcp.Resource{
+			Name: "Snapshot section: " + section,
+			Description: sectionDescriptions[section] + " as paginated JSON (default " +
+				"100 rows; page with ?offset= & ?limit=).",
+			URI:      "itportal://snapshot/" + section,
+			MIMEType: "application/json",
+		}, h.SectionResource)
+	}
 
 	// ---- Read tools ----
 
 	sdkmcp.AddTool(server, &sdkmcp.Tool{
 		Name:        "search_docs",
-		Description: "Search the cached documentation snapshot for any keyword, company name, device name, IP address, serial number, or topic. Returns matching sections with context. Fast and token-efficient — searches local cache, not the live API.",
+		Description: "Search the documentation via the embedded SQLite index. Resolves exact lookups by IP address, serial number and name, plus full-text keyword search over names, summaries, notes and identifiers. Returns compact hits (type, id, name, summary, portal url, match snippet) — drill into any with get_entity_details. Fast and token-efficient; does not hit the live API.",
 	}, h.SearchDocs)
 
 	sdkmcp.AddTool(server, &sdkmcp.Tool{
