@@ -10,6 +10,7 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/alexfirilov/itportal-mcp/internal/cache"
 	"github.com/alexfirilov/itportal-mcp/internal/itportal"
 )
 
@@ -18,8 +19,9 @@ import (
 // for each tool's input, which the LLM uses to correctly populate fields.
 
 type SearchDocsInput struct {
-	Query      string `json:"query" jsonschema:"Search query to find in the documentation snapshot. Supports partial matches."`
-	EntityType string `json:"entity_type,omitempty" jsonschema:"Optional: restrict search to a section. Values: company, site, device, kb, contact, agreement, ipnetwork, document, account, facility, cabinet, configuration"`
+	Query      string `json:"query" jsonschema:"Search query: a keyword/topic, exact IP address, serial number, or object name. Multiple words are ANDed and prefix-matched."`
+	EntityType string `json:"entity_type,omitempty" jsonschema:"Optional: restrict to one entity type. Values: company, site, device, kb, contact, agreement, ipnetwork, document, account, facility, cabinet, configuration"`
+	Limit      int    `json:"limit,omitempty" jsonschema:"Max results to return. Default 50."`
 }
 
 type ListEntitiesInput struct {
@@ -112,62 +114,53 @@ type RefreshSnapshotInput struct{}
 
 // ---- Handler methods ----
 
-// SearchDocs performs a case-insensitive full-text search across the cached documentation snapshot.
-func (h *Handler) SearchDocs(ctx context.Context, _ *sdkmcp.CallToolRequest, input SearchDocsInput) (*sdkmcp.CallToolResult, any, error) {
-	if input.Query == "" {
+// SearchDocs queries the embedded SQLite index: exact lookups by IP/serial/name
+// first, then FTS5 keyword search. It returns compact hits the model can drill
+// into with get_entity_details.
+func (h *Handler) SearchDocs(_ context.Context, _ *sdkmcp.CallToolRequest, input SearchDocsInput) (*sdkmcp.CallToolResult, any, error) {
+	if strings.TrimSpace(input.Query) == "" {
 		return toolError("query must not be empty"), nil, nil
 	}
+	store := h.cache.Store()
+	if store == nil {
+		return toolError("documentation index not ready; try refresh_snapshot"), nil, nil
+	}
 
-	snap := h.cache.Get()
-	markdown := snap.Markdown
+	typ := strings.ToLower(strings.ReplaceAll(input.EntityType, "_", ""))
+	if typ == "knowledgebase" {
+		typ = "kb"
+	}
 
-	// If an entity type filter was requested, narrow to that section.
-	if input.EntityType != "" {
-		section := sectionHeader(input.EntityType)
-		if section != "" {
-			start := strings.Index(markdown, "\n## "+section)
-			if start != -1 {
-				end := findNextSection(markdown, start+1)
-				if end > start {
-					markdown = markdown[start:end]
-				}
-			}
+	results, err := store.Search(input.Query, typ, input.Limit)
+	if err != nil {
+		return nil, nil, fmt.Errorf("search docs: %w", err)
+	}
+
+	if len(results) == 0 {
+		counts, _ := store.Counts()
+		coverage := make([]string, 0, len(counts))
+		for k, v := range counts {
+			coverage = append(coverage, fmt.Sprintf("%s=%d", k, v))
 		}
+		return toolText(fmt.Sprintf("No results for %q. Try fewer/looser keywords or a different entity_type.\nIndex coverage: %s",
+			input.Query, strings.Join(coverage, ", "))), nil, nil
 	}
 
-	// Collect matching lines with context.
-	queryLower := strings.ToLower(input.Query)
-	lines := strings.Split(markdown, "\n")
-	var matches []string
-	for i, line := range lines {
-		if strings.Contains(strings.ToLower(line), queryLower) {
-			// Include the heading above the matching line for context.
-			start := max(0, i-1)
-			end := min(len(lines), i+4)
-			block := strings.Join(lines[start:end], "\n")
-			matches = append(matches, block)
-		}
+	out, err := json.MarshalIndent(struct {
+		Query   string               `json:"query"`
+		Count   int                  `json:"count"`
+		Hint    string               `json:"hint"`
+		Results []cache.SearchResult `json:"results"`
+	}{
+		Query:   input.Query,
+		Count:   len(results),
+		Hint:    "Use get_entity_details(entity_type=<type>, id=<id>) for the full record of any hit.",
+		Results: results,
+	}, "", "  ")
+	if err != nil {
+		return nil, nil, fmt.Errorf("marshal search results: %w", err)
 	}
-
-	if len(matches) == 0 {
-		return toolText(fmt.Sprintf("No results found for %q in the documentation snapshot.\n\nSnapshot coverage: %d companies, %d sites, %d devices, %d KB articles, %d contacts, %d agreements, %d IP networks, %d documents, %d accounts, %d facilities, %d cabinets, %d configurations.",
-			input.Query, len(snap.Companies), len(snap.Sites), len(snap.Devices), len(snap.KBs), len(snap.Contacts),
-			len(snap.Agreements), len(snap.IPNetworks), len(snap.Documents), len(snap.Accounts),
-			len(snap.Facilities), len(snap.Cabinets), len(snap.Configurations))), nil, nil
-	}
-
-	// Deduplicate blocks.
-	seen := map[string]bool{}
-	var unique []string
-	for _, m := range matches {
-		if !seen[m] {
-			seen[m] = true
-			unique = append(unique, m)
-		}
-	}
-
-	result := fmt.Sprintf("Found %d match(es) for %q:\n\n%s", len(unique), input.Query, strings.Join(unique, "\n---\n"))
-	return toolText(result), nil, nil
+	return toolText(string(out)), nil, nil
 }
 
 // ListEntities lists entities of the given type from ITPortal with optional filters.
@@ -891,58 +884,4 @@ func (h *Handler) marshalWithURL(itemType string, id int, url *string, v interfa
 		*url = itportal.BuildPortalURL(h.baseURL, itemType, id)
 	}
 	return marshalResult(v)
-}
-
-// sectionHeader returns the markdown section heading for an entity type filter.
-func sectionHeader(entityType string) string {
-	switch strings.ToLower(strings.ReplaceAll(entityType, "_", "")) {
-	case "company":
-		return "Companies"
-	case "site":
-		return "Sites"
-	case "device":
-		return "Devices"
-	case "kb", "knowledgebase":
-		return "Knowledge Base Articles"
-	case "contact":
-		return "Contacts"
-	case "agreement":
-		return "Agreements"
-	case "ipnetwork":
-		return "IP Networks"
-	case "document":
-		return "Documents"
-	case "account":
-		return "Accounts"
-	case "facility":
-		return "Facilities"
-	case "cabinet":
-		return "Cabinets"
-	case "configuration":
-		return "Configurations"
-	}
-	return ""
-}
-
-// findNextSection returns the index of the next top-level section (##) after start.
-func findNextSection(s string, start int) int {
-	idx := strings.Index(s[start:], "\n## ")
-	if idx == -1 {
-		return len(s)
-	}
-	return start + idx
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
