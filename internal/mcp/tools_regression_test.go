@@ -161,3 +161,49 @@ func TestDedupeManagementURLsByTitleURL(t *testing.T) {
 		t.Fatalf("got %d distinct URLs, want 2", len(got))
 	}
 }
+
+// TestDedupeDeviceIPsByID covers the stale-cursor echo that returned every device
+// IP twice (e.g. device 186's 4 IPs came back as 8 with duplicated ids).
+func TestDedupeDeviceIPsByID(t *testing.T) {
+	in := []itportal.DeviceIP{
+		{ID: 601, IP: "10.0.0.1:9200"},
+		{ID: 602, IP: "10.0.0.1:1515"},
+		{ID: 601, IP: "10.0.0.1:9200"},
+		{ID: 602, IP: "10.0.0.1:1515"},
+	}
+	got := dedupeDeviceIPs(in)
+	if len(got) != 2 {
+		t.Fatalf("got %d distinct IPs, want 2", len(got))
+	}
+}
+
+// TestGetDeviceDetailsDedupesIPs verifies the dedupe is wired into the device
+// detail path so a doubled IP list surfaces each IP once in the output.
+func TestGetDeviceDetailsDedupesIPs(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/ips/"):
+			writeList(w, []itportal.DeviceIP{
+				{ID: 601, IP: "10.0.0.1:9200", Description: "Indexer"},
+				{ID: 601, IP: "10.0.0.1:9200", Description: "Indexer"},
+			}, "")
+		case strings.HasSuffix(r.URL.Path, "/managementUrls/"):
+			writeList(w, []itportal.DeviceMUrl{}, "")
+		case strings.HasSuffix(r.URL.Path, "/notes/"):
+			writeList(w, []itportal.DeviceNote{}, "")
+		default:
+			writeList(w, []itportal.Device{{ID: 139, Name: "fw01", URL: "https://p/v4/app/devices/139"}}, "")
+		}
+	}))
+	defer srv.Close()
+
+	h := newHandler(srv.URL)
+	res, _, err := h.GetEntityDetails(context.Background(), nil, GetEntityInput{EntityType: "device", ID: "139"})
+	if err != nil {
+		t.Fatalf("GetEntityDetails: %v", err)
+	}
+	out := resultText(t, res)
+	if n := strings.Count(out, `"10.0.0.1:9200"`); n != 1 {
+		t.Errorf("device IP appears %d times in output, want 1:\n%s", n, out)
+	}
+}

@@ -435,6 +435,7 @@ func (h *Handler) getDeviceDetails(ctx context.Context, id string) (*sdkmcp.Call
 	if err != nil {
 		return nil, nil, fmt.Errorf("get device IPs: %w", err)
 	}
+	ips = dedupeDeviceIPs(ips)
 	notes, err := h.client.GetDeviceNotes(ctx, id)
 	if err != nil {
 		return nil, nil, fmt.Errorf("get device notes: %w", err)
@@ -480,6 +481,30 @@ func dedupeManagementURLs(urls []itportal.DeviceMUrl) []itportal.DeviceMUrl {
 		}
 		seen[key] = true
 		out = append(out, u)
+	}
+	return out
+}
+
+// dedupeDeviceIPs removes duplicate IP records. Like the management-URL endpoint,
+// the device-IP sub-resource can echo a stale cursor and return the same records
+// twice (observed as every IP appearing 2x). Distinct records are kept by id, or
+// by ip+description when the id is absent. Order is preserved.
+func dedupeDeviceIPs(ips []itportal.DeviceIP) []itportal.DeviceIP {
+	if len(ips) <= 1 {
+		return ips
+	}
+	seen := make(map[string]bool, len(ips))
+	out := ips[:0:0]
+	for _, ip := range ips {
+		key := strconv.Itoa(ip.ID)
+		if ip.ID == 0 {
+			key = "ip:" + ip.IP + "|d:" + ip.Description
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, ip)
 	}
 	return out
 }
