@@ -348,6 +348,7 @@ type DocumentType struct {
 
 type Document struct {
 	ID          int               `json:"id,omitempty"`
+	Name        string            `json:"name,omitempty"` // required by the documents endpoint on create
 	Company     *CompanyReference `json:"company,omitempty"`
 	Type        *DocumentType     `json:"type,omitempty"`
 	Description string            `json:"description,omitempty"`
