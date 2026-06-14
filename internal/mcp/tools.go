@@ -45,12 +45,13 @@ type GetEntityInput struct {
 }
 
 type CreateKBArticleInput struct {
-	CompanyID   int    `json:"company_id" jsonschema:"ID of the company this article belongs to"`
-	Name        string `json:"name" jsonschema:"Title of the knowledge base article"`
-	Description string `json:"description,omitempty" jsonschema:"Full content of the article. HTML is supported."`
-	CategoryID  int    `json:"category_id,omitempty" jsonschema:"KB category ID. Use list_entities with entity_type=kb_category to discover available categories."`
-	Public      bool   `json:"public,omitempty" jsonschema:"Set true to make the article publicly visible (default: false)"`
-	Expires     string `json:"expires,omitempty" jsonschema:"Expiration date in YYYY-MM-DD format"`
+	CompanyID     int    `json:"company_id" jsonschema:"ID of the company this article belongs to"`
+	Name          string `json:"name" jsonschema:"Title of the knowledge base article"`
+	Description   string `json:"description,omitempty" jsonschema:"Full content of the article (max 3000 chars). HTML is supported."`
+	CategoryID    int    `json:"category_id,omitempty" jsonschema:"KB category ID. Use list_entities with entity_type=kb_category to discover categories and their subcategories. The API requires BOTH category_id and sub_category_id."`
+	SubCategoryID int    `json:"sub_category_id,omitempty" jsonschema:"KB subcategory ID (required by the API alongside category_id). Discover via list_entities entity_type=kb_category — each category lists its subCategories."`
+	Public        bool   `json:"public,omitempty" jsonschema:"Set true to make the article publicly visible (default: false)"`
+	Expires       string `json:"expires,omitempty" jsonschema:"Expiration date in YYYY-MM-DD format"`
 }
 
 type CreateDeviceInput struct {
@@ -527,6 +528,9 @@ func (h *Handler) CreateKBArticle(ctx context.Context, _ *sdkmcp.CallToolRequest
 	}
 	if input.CategoryID != 0 {
 		kb.Category = &itportal.KBCategory{ID: input.CategoryID}
+	}
+	if input.SubCategoryID != 0 {
+		kb.SubCategory = &itportal.TypeItem{ID: input.SubCategoryID}
 	}
 
 	created, err := h.client.CreateKB(ctx, kb)
