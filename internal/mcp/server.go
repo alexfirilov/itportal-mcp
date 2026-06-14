@@ -132,7 +132,7 @@ Field conventions:
 
 	sdkmcp.AddTool(server, &sdkmcp.Tool{
 		Name:        "create_kb_article",
-		Description: "Create a new knowledge base article for a company. Use this to document procedures, configurations, troubleshooting guides or any other reference information.",
+		Description: "Create a new knowledge base article for a company. Use this to document procedures, configurations, troubleshooting guides or any other reference information. The 'description' field is a short synopsis; put the full note/document body in 'article' (HTML) or 'article_markdown' (Markdown, auto-converted).",
 	}, h.CreateKBArticle)
 
 	sdkmcp.AddTool(server, &sdkmcp.Tool{
@@ -147,7 +147,7 @@ Field conventions:
 
 	sdkmcp.AddTool(server, &sdkmcp.Tool{
 		Name:        "update_entity",
-		Description: "Update (PATCH) an existing entity. Only include fields that should change. Reference fields use {\"id\": N} format. Entity types: company, site, device, kb, contact, account, agreement, document, facility, cabinet, configuration, ipnetwork, additional_credential.",
+		Description: "Update (PATCH) an existing entity. Only include fields that should change. Reference fields use {\"id\": N} format. Entity types: company, site, device, kb, contact, account, agreement, document, facility, cabinet, configuration, ipnetwork, additional_credential. For kb, the note/document body is the 'article' field (HTML); pass 'article_markdown' instead to author in Markdown (auto-converted to article). 'description' is only the short synopsis.",
 	}, h.UpdateEntity)
 
 	sdkmcp.AddTool(server, &sdkmcp.Tool{

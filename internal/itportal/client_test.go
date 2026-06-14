@@ -231,6 +231,33 @@ func TestErrorStatusSurfacesBody(t *testing.T) {
 	}
 }
 
+func TestGetKBReturnsArticle(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/2.1/kbs/39/" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		writeList(w, []KB{{
+			ID:          39,
+			Name:        "Backup runbook",
+			Description: "short synopsis",
+			Article:     "<h2>Steps</h2><p>note body</p>",
+		}}, "")
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv.URL)
+	kb, err := c.GetKB(context.Background(), "39")
+	if err != nil {
+		t.Fatalf("GetKB: %v", err)
+	}
+	if kb.Article != "<h2>Steps</h2><p>note body</p>" {
+		t.Errorf("Article = %q, want note body HTML", kb.Article)
+	}
+	if kb.Description != "short synopsis" {
+		t.Errorf("Description = %q", kb.Description)
+	}
+}
+
 // writeList writes a v2.1-style list envelope.
 func writeList[T any](w http.ResponseWriter, results []T, nextCursor string) {
 	type data struct {

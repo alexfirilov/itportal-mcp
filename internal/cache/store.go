@@ -298,7 +298,10 @@ func (s *Store) load(snap *Snapshot) error {
 			kb.ID, kb.Name, summary, coID, coName, category, content, kb.URL); err != nil {
 			return fmt.Errorf("insert kb: %w", err)
 		}
-		body := strings.Join([]string{coName, category, content}, " ")
+		// Index the note/document body (article) too, HTML stripped, so
+		// search_docs matches on the full KB content, not just the synopsis.
+		article := truncate(kb.Article, 8000)
+		body := strings.Join([]string{coName, category, content, article}, " ")
 		if err := index("kb", kb.ID, kb.Name, summary, kb.URL, body); err != nil {
 			return err
 		}

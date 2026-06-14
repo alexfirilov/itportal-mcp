@@ -45,13 +45,15 @@ type GetEntityInput struct {
 }
 
 type CreateKBArticleInput struct {
-	CompanyID     int    `json:"company_id" jsonschema:"ID of the company this article belongs to"`
-	Name          string `json:"name" jsonschema:"Title of the knowledge base article"`
-	Description   string `json:"description,omitempty" jsonschema:"Full content of the article (max 3000 chars). HTML is supported."`
-	CategoryID    int    `json:"category_id,omitempty" jsonschema:"KB category ID. Use list_entities with entity_type=kb_category to discover categories and their subcategories. The API requires BOTH category_id and sub_category_id."`
-	SubCategoryID int    `json:"sub_category_id,omitempty" jsonschema:"KB subcategory ID (required by the API alongside category_id). Discover via list_entities entity_type=kb_category — each category lists its subCategories."`
-	Public        bool   `json:"public,omitempty" jsonschema:"Set true to make the article publicly visible (default: false)"`
-	Expires       string `json:"expires,omitempty" jsonschema:"Expiration date in YYYY-MM-DD format"`
+	CompanyID       int    `json:"company_id" jsonschema:"ID of the company this article belongs to"`
+	Name            string `json:"name" jsonschema:"Title of the knowledge base article"`
+	Description     string `json:"description,omitempty" jsonschema:"Short synopsis of the article's purpose (max 3000 chars). This is NOT the document body — put the main content in article or article_markdown."`
+	Article         string `json:"article,omitempty" jsonschema:"The KB note / document body as HTML. This is the main content shown in the article/note area (distinct from description). Use article_markdown instead if you prefer to author in Markdown."`
+	ArticleMarkdown string `json:"article_markdown,omitempty" jsonschema:"The KB note / document body as Markdown (GitHub-Flavored: headings, lists, tables, links, code). Converted to HTML automatically. Takes precedence over article."`
+	CategoryID      int    `json:"category_id,omitempty" jsonschema:"KB category ID. Use list_entities with entity_type=kb_category to discover categories and their subcategories. The API requires BOTH category_id and sub_category_id."`
+	SubCategoryID   int    `json:"sub_category_id,omitempty" jsonschema:"KB subcategory ID (required by the API alongside category_id). Discover via list_entities entity_type=kb_category — each category lists its subCategories."`
+	Public          bool   `json:"public,omitempty" jsonschema:"Set true to make the article publicly visible (default: false)"`
+	Expires         string `json:"expires,omitempty" jsonschema:"Expiration date in YYYY-MM-DD format"`
 }
 
 type CreateDeviceInput struct {
@@ -519,9 +521,15 @@ func (h *Handler) CreateKBArticle(ctx context.Context, _ *sdkmcp.CallToolRequest
 		return toolError("name is required"), nil, nil
 	}
 
+	article := input.Article
+	if strings.TrimSpace(input.ArticleMarkdown) != "" {
+		article = markdownToHTML(input.ArticleMarkdown)
+	}
+
 	kb := &itportal.KB{
 		Name:        input.Name,
 		Description: input.Description,
+		Article:     article,
 		Company:     &itportal.CompanyReference{ID: input.CompanyID},
 		Public:      input.Public,
 		Expires:     input.Expires,
@@ -785,6 +793,7 @@ func (h *Handler) UpdateEntity(ctx context.Context, _ *sdkmcp.CallToolRequest, i
 	case "device":
 		err = h.client.UpdateDevice(ctx, input.ID, input.Fields)
 	case "kb", "knowledgebase":
+		resolveKBArticleField(input.Fields)
 		err = h.client.UpdateKB(ctx, input.ID, input.Fields)
 	case "contact":
 		err = h.client.UpdateContact(ctx, input.ID, input.Fields)

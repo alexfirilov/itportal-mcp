@@ -240,17 +240,20 @@ type KB struct {
 	Name        string            `json:"name,omitempty"`
 	Company     *CompanyReference `json:"company,omitempty"`
 	Description string            `json:"description,omitempty"`
-	URIPath     string            `json:"uriPath,omitempty"`
-	Public      bool              `json:"public,omitempty"`
-	Expires     string            `json:"expires,omitempty"`
-	Category    *KBCategory       `json:"category,omitempty"`
-	SubCategory *TypeItem         `json:"subCategory,omitempty"`
-	ReviewBy    *UserReference    `json:"reviewBy,omitempty"`
-	DueDate     string            `json:"dueDate,omitempty"`
-	InOut       *bool             `json:"inOut,omitempty"`
-	InOutNotes  string            `json:"inOutNotes,omitempty"`
-	Modified    string            `json:"modified,omitempty"`
-	URL         string            `json:"url,omitempty"`
+	// Article is the KB note / document body (HTML). Distinct from Description,
+	// which is a short synopsis of the article's purpose.
+	Article     string         `json:"article,omitempty"`
+	URIPath     string         `json:"uriPath,omitempty"`
+	Public      bool           `json:"public,omitempty"`
+	Expires     string         `json:"expires,omitempty"`
+	Category    *KBCategory    `json:"category,omitempty"`
+	SubCategory *TypeItem      `json:"subCategory,omitempty"`
+	ReviewBy    *UserReference `json:"reviewBy,omitempty"`
+	DueDate     string         `json:"dueDate,omitempty"`
+	InOut       *bool          `json:"inOut,omitempty"`
+	InOutNotes  string         `json:"inOutNotes,omitempty"`
+	Modified    string         `json:"modified,omitempty"`
+	URL         string         `json:"url,omitempty"`
 }
 
 // ---- Contact ----
