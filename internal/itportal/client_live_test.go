@@ -93,5 +93,33 @@ func TestLiveReadOnly(t *testing.T) {
 			t.Fatalf("ListRelationships(devices/%s): %v", id, err)
 		}
 		t.Logf("ListRelationships(devices/%s): %d link(s)", id, len(rels))
+
+		// Switch port ranges (validates the switchPortRanges endpoint + nested decode).
+		ranges, err := c.ListSwitchPortRanges(ctx, id)
+		if err != nil {
+			t.Fatalf("ListSwitchPortRanges(devices/%s): %v", id, err)
+		}
+		t.Logf("ListSwitchPortRanges(devices/%s): %d range(s)", id, len(ranges))
+	}
+
+	// 6. Populated switch: set ITPORTAL_TEST_SWITCH_ID to a switch device id to
+	// verify a real range decodes (name, port span, nested port descriptions).
+	if swID := os.Getenv("ITPORTAL_TEST_SWITCH_ID"); swID != "" {
+		ranges, err := c.ListSwitchPortRanges(ctx, swID)
+		if err != nil {
+			t.Fatalf("ListSwitchPortRanges(devices/%s): %v", swID, err)
+		}
+		if len(ranges) == 0 {
+			t.Errorf("switch %s reported 0 port ranges — expected at least one", swID)
+		}
+		for _, r := range ranges {
+			t.Logf("range id=%d name=%q ports %d-%d, %d switchPort(s), desc=%q",
+				r.ID, r.Name, r.StartingPort, r.EndingPort, len(r.SwitchPorts), r.Description)
+			for _, sp := range r.SwitchPorts {
+				if sp.Description != "" {
+					t.Logf("   port %d: %q", sp.PortNumber, sp.Description)
+				}
+			}
+		}
 	}
 }

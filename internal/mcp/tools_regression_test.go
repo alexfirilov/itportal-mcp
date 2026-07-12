@@ -177,6 +177,20 @@ func TestDedupeDeviceIPsByID(t *testing.T) {
 	}
 }
 
+// TestDedupeSwitchPortRangesByID covers the same stale-cursor echo on the
+// switchPortRanges sub-resource, which returned every range twice (observed live
+// on device 124: the single RJ range id=5 came back duplicated).
+func TestDedupeSwitchPortRangesByID(t *testing.T) {
+	in := []itportal.SwitchPortRange{
+		{ID: 5, Name: "RJ", StartingPort: 1, EndingPort: 8},
+		{ID: 5, Name: "RJ", StartingPort: 1, EndingPort: 8},
+	}
+	got := dedupeSwitchPortRanges(in)
+	if len(got) != 1 {
+		t.Fatalf("got %d distinct ranges, want 1", len(got))
+	}
+}
+
 // TestGetDeviceDetailsDedupesIPs verifies the dedupe is wired into the device
 // detail path so a doubled IP list surfaces each IP once in the output.
 func TestGetDeviceDetailsDedupesIPs(t *testing.T) {

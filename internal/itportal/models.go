@@ -525,6 +525,50 @@ type Relationship struct {
 	Notes  string              `json:"notes,omitempty"`
 }
 
+// ---- Switch ports (per-device port ranges) ----
+//
+// A switch device's "Switch Ports" tab is modelled as one or more SwitchPortRanges
+// (e.g. a 24-port "RJ" range spanning ports 1-24). Each range owns a fixed set of
+// SwitchPorts that ITPortal auto-creates when the range is created.
+//
+// API note: only the range container is writable (name, port span, description,
+// multipleDevices). Individual SwitchPort.Description and PortAssignment are
+// read-only over the REST API and can only be edited in the ITPortal web UI.
+
+// PortAssignment is the device / IP-network / IP mapped to a single switch port.
+type PortAssignment struct {
+	ID          int                 `json:"id,omitempty"`
+	IP          string              `json:"ip,omitempty"`
+	Description string              `json:"description,omitempty"`
+	IPNetwork   *IPNetworkReference `json:"ipNetwork,omitempty"`
+	Device      *DeviceReference    `json:"device,omitempty"`
+}
+
+// SwitchPort is a single physical port within a range (read-only over the API).
+type SwitchPort struct {
+	ID             int             `json:"id,omitempty"`
+	PortNumber     int             `json:"portNumber,omitempty"`
+	Description    string          `json:"description,omitempty"`
+	PortAssignment *PortAssignment `json:"portAssignment,omitempty"`
+	Modified       string          `json:"modified,omitempty"`
+}
+
+// SwitchPortRange is a contiguous block of ports on a switch (the writable object).
+// MultipleDevices has no omitempty: the create endpoint requires the field even
+// when false.
+type SwitchPortRange struct {
+	ID              int          `json:"id,omitempty"`
+	Name            string       `json:"name,omitempty"`
+	Description     string       `json:"description,omitempty"`
+	FPCNumber       *int         `json:"fpcNumber,omitempty"`
+	Slot            *int         `json:"slot,omitempty"`
+	StartingPort    int          `json:"startingPort,omitempty"`
+	EndingPort      int          `json:"endingPort,omitempty"`
+	MultipleDevices bool         `json:"multipleDevices"`
+	Modified        string       `json:"modified,omitempty"`
+	SwitchPorts     []SwitchPort `json:"switchPorts,omitempty"`
+}
+
 // ---- Folders & folder files (per-object document tree) ----
 
 type Folder struct {

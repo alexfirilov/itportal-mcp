@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"strconv"
 	"strings"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -332,6 +333,103 @@ func (h *Handler) ManageFolderFile(ctx context.Context, _ *sdkmcp.CallToolReques
 		return toolText(fmt.Sprintf("File %s deleted.", input.FileID)), nil, nil
 	default:
 		return toolError(fmt.Sprintf("unknown action %q", input.Action)), nil, nil
+	}
+}
+
+// ---- manage_switch_ports ----
+
+type ManageSwitchPortsInput struct {
+	Action          string `json:"action" jsonschema:"One of: list, get, create, update, delete"`
+	DeviceID        string `json:"device_id" jsonschema:"Numeric ID of the switch device"`
+	RangeID         string `json:"range_id,omitempty" jsonschema:"Switch-port-range ID — required for get/update/delete"`
+	Name            string `json:"name,omitempty" jsonschema:"Range name, e.g. \"RJ\" — required for create"`
+	Description     string `json:"description,omitempty" jsonschema:"Range description (create/update). Per-port descriptions are NOT API-writable, so record uplink/port notes here."`
+	StartingPort    int    `json:"starting_port,omitempty" jsonschema:"First physical port number — required for create"`
+	EndingPort      int    `json:"ending_port,omitempty" jsonschema:"Last physical port number — required for create"`
+	MultipleDevices bool   `json:"multiple_devices,omitempty" jsonschema:"Whether ports may map to multiple devices (usually false; only sent on create)"`
+}
+
+func (h *Handler) ManageSwitchPorts(ctx context.Context, _ *sdkmcp.CallToolRequest, input ManageSwitchPortsInput) (*sdkmcp.CallToolResult, any, error) {
+	if input.DeviceID == "" {
+		return toolError("device_id is required"), nil, nil
+	}
+
+	switch strings.ToLower(input.Action) {
+	case "list", "":
+		ranges, err := h.client.ListSwitchPortRanges(ctx, input.DeviceID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("list switch port ranges: %w", err)
+		}
+		return marshalResult(dedupeSwitchPortRanges(ranges))
+	case "get":
+		if input.RangeID == "" {
+			return toolError("range_id is required for get"), nil, nil
+		}
+		ranges, err := h.client.ListSwitchPortRanges(ctx, input.DeviceID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("get switch port range: %w", err)
+		}
+		for i := range ranges {
+			if strconv.Itoa(ranges[i].ID) == input.RangeID {
+				return marshalResult(ranges[i])
+			}
+		}
+		return toolError(fmt.Sprintf("no switch port range %s on device %s", input.RangeID, input.DeviceID)), nil, nil
+	case "create":
+		if input.Name == "" || input.StartingPort == 0 || input.EndingPort == 0 {
+			return toolError("name, starting_port and ending_port are required for create"), nil, nil
+		}
+		r := &itportal.SwitchPortRange{
+			Name:            input.Name,
+			Description:     input.Description,
+			StartingPort:    input.StartingPort,
+			EndingPort:      input.EndingPort,
+			MultipleDevices: input.MultipleDevices,
+		}
+		id, err := h.client.CreateSwitchPortRange(ctx, input.DeviceID, r)
+		if err != nil {
+			return nil, nil, fmt.Errorf("create switch port range: %w", err)
+		}
+		if id == 0 {
+			return toolText(fmt.Sprintf("Switch port range %q (ports %d-%d) created on device %s.",
+				input.Name, input.StartingPort, input.EndingPort, input.DeviceID)), nil, nil
+		}
+		return toolText(fmt.Sprintf("Switch port range %q (ports %d-%d) created on device %s (range ID: %d).",
+			input.Name, input.StartingPort, input.EndingPort, input.DeviceID, id)), nil, nil
+	case "update":
+		if input.RangeID == "" {
+			return toolError("range_id is required for update"), nil, nil
+		}
+		fields := map[string]interface{}{}
+		if input.Name != "" {
+			fields["name"] = input.Name
+		}
+		if input.Description != "" {
+			fields["description"] = input.Description
+		}
+		if input.StartingPort != 0 {
+			fields["startingPort"] = input.StartingPort
+		}
+		if input.EndingPort != 0 {
+			fields["endingPort"] = input.EndingPort
+		}
+		if len(fields) == 0 {
+			return toolError("no fields to update (set name, description, starting_port or ending_port)"), nil, nil
+		}
+		if err := h.client.UpdateSwitchPortRange(ctx, input.DeviceID, input.RangeID, fields); err != nil {
+			return nil, nil, fmt.Errorf("update switch port range: %w", err)
+		}
+		return toolText(fmt.Sprintf("Switch port range %s updated.", input.RangeID)), nil, nil
+	case "delete":
+		if input.RangeID == "" {
+			return toolError("range_id is required for delete"), nil, nil
+		}
+		if err := h.client.DeleteSwitchPortRange(ctx, input.DeviceID, input.RangeID); err != nil {
+			return nil, nil, fmt.Errorf("delete switch port range: %w", err)
+		}
+		return toolText(fmt.Sprintf("Switch port range %s deleted.", input.RangeID)), nil, nil
+	default:
+		return toolError(fmt.Sprintf("unknown action %q (use list, get, create, update, delete)", input.Action)), nil, nil
 	}
 }
 

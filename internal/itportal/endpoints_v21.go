@@ -115,6 +115,31 @@ func (c *Client) DeleteFolderFile(ctx context.Context, objectPath, objectID, fol
 	return err
 }
 
+// ---- Switch ports (per-device port ranges) ----
+//
+// Only the range container is writable. Individual per-port descriptions and
+// port-to-device assignments are read-only over the REST API (UI-only).
+
+func (c *Client) ListSwitchPortRanges(ctx context.Context, deviceID string) ([]SwitchPortRange, error) {
+	return listAll[SwitchPortRange](ctx, c, fmt.Sprintf("/api/2.0/devices/%s/switchPortRanges/", deviceID), nil, 500)
+}
+
+// CreateSwitchPortRange creates a range (which auto-provisions its ports) and
+// returns the new range id (0 if the API omits a Location header).
+func (c *Client) CreateSwitchPortRange(ctx context.Context, deviceID string, r *SwitchPortRange) (int, error) {
+	return c.createID(ctx, fmt.Sprintf("/api/2.0/devices/%s/switchPortRanges/", deviceID), r)
+}
+
+func (c *Client) UpdateSwitchPortRange(ctx context.Context, deviceID, rangeID string, fields map[string]interface{}) error {
+	_, err := c.do(ctx, http.MethodPatch, fmt.Sprintf("/api/2.0/devices/%s/switchPortRanges/%s/", deviceID, rangeID), fields, nil)
+	return err
+}
+
+func (c *Client) DeleteSwitchPortRange(ctx context.Context, deviceID, rangeID string) error {
+	_, err := c.do(ctx, http.MethodDelete, fmt.Sprintf("/api/2.0/devices/%s/switchPortRanges/%s/", deviceID, rangeID), nil, nil)
+	return err
+}
+
 // ---- Type management (generic over kind) ----
 //
 // kind is one of: account, agreement, company, contact, device, document,

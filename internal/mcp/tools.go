@@ -512,6 +512,30 @@ func dedupeDeviceIPs(ips []itportal.DeviceIP) []itportal.DeviceIP {
 	return out
 }
 
+// dedupeSwitchPortRanges removes duplicate switch-port-range records. Like the
+// other device sub-resources, the switchPortRanges endpoint echoes a stale
+// cursor and returns every range twice. Distinct records are kept by id, or by
+// name+port-span when the id is absent. Order is preserved.
+func dedupeSwitchPortRanges(ranges []itportal.SwitchPortRange) []itportal.SwitchPortRange {
+	if len(ranges) <= 1 {
+		return ranges
+	}
+	seen := make(map[string]bool, len(ranges))
+	out := ranges[:0:0]
+	for _, r := range ranges {
+		key := strconv.Itoa(r.ID)
+		if r.ID == 0 {
+			key = fmt.Sprintf("n:%s|s:%d|e:%d", r.Name, r.StartingPort, r.EndingPort)
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, r)
+	}
+	return out
+}
+
 // CreateKBArticle creates a new knowledge base article.
 func (h *Handler) CreateKBArticle(ctx context.Context, _ *sdkmcp.CallToolRequest, input CreateKBArticleInput) (*sdkmcp.CallToolResult, any, error) {
 	if input.CompanyID == 0 {

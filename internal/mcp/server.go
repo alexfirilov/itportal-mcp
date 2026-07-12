@@ -51,6 +51,9 @@ Tool guide:
 - Modify:  update_entity, delete_entity.
 - Linking & files: manage_relationship (link two objects), manage_folder + manage_folder_file
            (per-object document trees), manage_credential (additional credentials).
+- Switch ports: manage_switch_ports (a switch's Switch Ports tab — list/get/create/update/delete
+           port ranges; per-port descriptions are read-only via the API, so record port notes in
+           the range description).
 - Admin:   manage_type (custom type lists), manage_kb_category (KB categories/subcategories).
 
 Field conventions:
@@ -181,6 +184,11 @@ Field conventions:
 		Name:        "manage_relationship",
 		Description: "List, create, update or delete relationships (links) between two portal objects. Links are symmetric — a device↔document link appears from both sides. Use action=create with object_type/object_id as the source and target_type/target_id as the destination.",
 	}, h.ManageRelationship)
+
+	sdkmcp.AddTool(server, &sdkmcp.Tool{
+		Name:        "manage_switch_ports",
+		Description: "Read and manage a switch's Switch Ports tab. Actions: list (all switch-port ranges for a device, each with its full nested port list — port numbers, per-port descriptions and device/IP assignments), get (one range by range_id), create (a new port range — needs name, starting_port, ending_port; ITPortal auto-provisions the ports), update (range fields incl. description), delete (a range). IMPORTANT: the ITPortal API only supports writing the RANGE container (name, port span, description, multiple_devices). Individual per-port descriptions and port-to-device assignments are READ-ONLY over the API and can only be edited in the ITPortal web UI — to record an uplink/port note when the per-port field isn't writable, put it in the range description.",
+	}, h.ManageSwitchPorts)
 
 	sdkmcp.AddTool(server, &sdkmcp.Tool{
 		Name:        "manage_folder",
